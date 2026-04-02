@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FedSTGNN: 엣지 클라우드 교통량 예측</title>
+    <meta name="description" content="FedSTGNN - LA 고속도로 센서 네트워크에서 연합학습 기반 시공간 그래프 신경망을 활용한 교통량 예측 시각화">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Map (full page) -->
+    <div id="map"></div>
+    <!-- Canvas overlay for animations -->
+    <canvas id="overlay"></canvas>
+
+    <!-- Brand -->
+    <div class="panel brand-panel" id="brand-panel">
+        <span class="brand-emoji">🚗</span>
+        <div class="brand-text">
+            <div class="brand-name">FedSTGNN</div>
+            <div class="brand-sub">엣지 클라우드 교통량 예측</div>
+        </div>
+        <span class="badge">EAAI 2025</span>
+    </div>
+
+    <!-- Math Panel (For GNN Mode) -->
+    <div class="panel math-panel" id="math-panel"></div>
+
+    <!-- Mode selector -->
+    <div class="panel mode-panel" id="mode-panel">
+        <button class="mode-btn active" data-mode="overview" id="mode-overview">
+            <span class="mode-icon">📍</span> 개요
+        </button>
+        <button class="mode-btn" data-mode="fl" id="mode-fl">
+            <span class="mode-icon">🔄</span> 연합학습
+        </button>
+        <button class="mode-btn" data-mode="gnn" id="mode-gnn">
+            <span class="mode-icon">🧠</span> GNN 학습
+        </button>
+        <button class="mode-btn" data-mode="resilience" id="mode-resilience">
+            <span class="mode-icon">⚡</span> 장애 테스트
+        </button>
+    </div>
+
+    <!-- Right info panel (dynamic content injected by JS) -->
+    <div class="panel info-panel" id="info-panel"></div>
+
+    <!-- Bottom legend -->
+    <div class="panel legend-panel" id="legend-panel"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
