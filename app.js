@@ -156,6 +156,7 @@
 
     // ===== Draw edges =====
     function drawEdges(time, hour) {
+        if (state.mode === 'gnn') return; // Handled dynamically in drawGNN
         EDGES.forEach(([a, b], ei) => {
             const pa = px(SENSORS[a]), pb = px(SENSORS[b]);
             let color = 'rgba(100,116,139,0.2)', lw = 1.5;
@@ -187,51 +188,11 @@
     }
 
     // ===== Draw sensor nodes =====
-    // GNN mode uses Server A perspective:
-    //   - Cluster 0 (Server A's own sensors): fully visible, bright
-    //   - Other clusters: dim/unknown, styled by imputation method
     function drawNodes(time, hour) {
+        if (state.mode === 'gnn') return; // Handled dynamically in drawGNN
+
         SENSORS.forEach((s, i) => {
             const p = px(s), color = C.srv[s.cluster];
-
-            if (state.mode === 'gnn') {
-                const isFocal = s.cluster === FOCAL_CLUSTER; // Server A's own sensors
-
-                if (isFocal) {
-                    // Server A knows these — fully bright with A's color
-                    const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 16);
-                    g.addColorStop(0, hexA(C.srv[FOCAL_CLUSTER], 0.3)); g.addColorStop(1, hexA(C.srv[FOCAL_CLUSTER], 0));
-                    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, 16, 0, Math.PI * 2); ctx.fill();
-                    ctx.fillStyle = 'white'; ctx.beginPath(); ctx.arc(p.x, p.y, 7, 0, Math.PI * 2); ctx.fill();
-                    ctx.fillStyle = C.srv[FOCAL_CLUSTER]; ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI * 2); ctx.fill();
-                } else {
-                    // Other servers' sensors — unknown to Server A
-                    if (state.imputeMethod === 'zero') {
-                        // Zero: completely gray with 0
-                        ctx.strokeStyle = '#D1D5DB'; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]);
-                        ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
-                        ctx.fillStyle = '#C4C4C4'; ctx.font = 'bold 8px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-                        ctx.fillText('0', p.x, p.y); ctx.textBaseline = 'alphabetic';
-                    } else if (state.imputeMethod === 'neighbor') {
-                        // Neighbor: half-filled with cluster color — partially estimated from 1 neighbor
-                        const nbrAlpha = ADJ[s.id].some(nb => SENSORS[nb].cluster === FOCAL_CLUSTER) ? 0.7 : 0.3;
-                        ctx.fillStyle = 'white'; ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, Math.PI * 2); ctx.fill();
-                        ctx.fillStyle = hexA(color, nbrAlpha);
-                        ctx.beginPath(); ctx.arc(p.x, p.y, 6, -Math.PI / 2, Math.PI / 2); ctx.fill();
-                        ctx.strokeStyle = hexA(color, nbrAlpha); ctx.lineWidth = 1.5;
-                        ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, Math.PI * 2); ctx.stroke();
-                    } else {
-                        // Feature propagation: fully restored, glowing with cluster color
-                        const pulse = Math.sin(time * 0.003 + i * 0.7) * 0.3 + 0.7;
-                        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 14);
-                        g.addColorStop(0, hexA(color, 0.25 * pulse)); g.addColorStop(1, hexA(color, 0));
-                        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, 14, 0, Math.PI * 2); ctx.fill();
-                        ctx.fillStyle = 'white'; ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, Math.PI * 2); ctx.fill();
-                        ctx.fillStyle = color; ctx.beginPath(); ctx.arc(p.x, p.y, 4.5, 0, Math.PI * 2); ctx.fill();
-                    }
-                }
-                return;
-            }
 
             // All other modes: ALWAYS colored
             // Identify actual working cluster for sensor coloring
@@ -409,103 +370,188 @@
         ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, 10, 0, Math.PI * 2); ctx.fill();
     }
 
-    // ===== GNN overlay =====
-    // Shows Server A's perspective on imputation (NO traffic circles here)
-    // Neighbor avg: pulse rings + edge highlight on 1-hop neighbors
-    // Feature propagation: diffusion wave expanding from A's sensors outward (X^(k+1) = (1-α)·Ã·X^(k) + α·X₀)
+    // ===== GNN overlay (Map-to-HUD Animation) =====
     function drawGNN(time) {
-        const method = state.imputeMethod;
+        const m = state.imputeMethod;
+        const cycle = 7000;
+        const t = (time % cycle) / cycle;
 
-        if (method === 'neighbor') {
-            drawNeighborImputation(time);
-        } else if (method === 'propagation') {
-            drawFeaturePropagation(time);
+        // HUD dimensions and location
+        const panel = document.getElementById('math-panel');
+        let hudX = 176, hudY = 320; 
+        if (panel) {
+            const rect = panel.getBoundingClientRect();
+            hudX = rect.left + rect.width / 2;
+            hudY = rect.top + 210; 
         }
-        // zero: no overlay (just the grayed-out nodes say it all)
-    }
+        
+        ctx.save();
+        ctx.setTransform(1,0,0,1,0,0); // reset scale to avoid messing up device ratio mapping since px() returns window coords
+        const dpr = devicePixelRatio || 1;
+        ctx.scale(dpr, dpr);
 
-    // Neighbor imputation: highlights the direct (1-hop) edges from A's boundary sensors
-    // to adjacent unknown sensors, showing 1 step of averaging
-    function drawNeighborImputation(time) {
-        const anim = (Math.sin(time * 0.003) + 1) / 2; // 0..1 pulse
-        EDGES.forEach(([a, b]) => {
-            const sa = SENSORS[a], sb = SENSORS[b];
-            const aIsFocal = sa.cluster === FOCAL_CLUSTER;
-            const bIsFocal = sb.cluster === FOCAL_CLUSTER;
-            if (aIsFocal === bIsFocal) return; // same side, skip
+        const matA_X = hudX - 80;
+        const matX_X = hudX - 25;
+        const nnBox_X = hudX + 45;
+        const matY_start = hudY - 70; // 24 nodes * 6px = 144px height entirely
+        
+        const p_flyOut = clamp((t - 0.05) / 0.15, 0, 1);
+        const p_eqForm = clamp((t - 0.25) / 0.15, 0, 1);
+        const p_insert = clamp((t - 0.45) / 0.15, 0, 1);
+        const p_compute = clamp((t - 0.60) / 0.15, 0, 1);
+        const p_shoot = clamp((t - 0.75) / 0.1, 0, 1);
+        const p_flyBack = clamp((t - 0.85) / 0.15, 0, 1);
 
-            // This edge crosses the boundary: A's sensor ↔ unknown sensor
-            const focalNode = aIsFocal ? sa : sb;
-            const unknownNode = aIsFocal ? sb : sa;
-            const fp = px(focalNode), up = px(unknownNode);
+        const easeOut = x => 1 - Math.pow(1 - x, 3);
+        const easeInOut = x => x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2;
+        const easeIn = x => x * x * x;
 
-            // Highlighted edge
-            ctx.strokeStyle = hexA(C.srv[FOCAL_CLUSTER], 0.5 + anim * 0.3);
-            ctx.lineWidth = 2.5;
-            ctx.beginPath(); ctx.moveTo(fp.x, fp.y); ctx.lineTo(up.x, up.y); ctx.stroke();
+        const e_flyOut = easeOut(p_flyOut);
+        const e_insert = easeInOut(p_insert);
+        const e_flyBack = easeIn(p_flyBack);
 
-            // Single pulse moving FROM focal TO unknown (averaging flow)
-            const p = (time * 0.0014 + focalNode.id * 0.2) % 1;
-            const px2 = lerp(fp.x, up.x, p), py2 = lerp(fp.y, up.y, p);
-            ctx.fillStyle = hexA(C.srv[FOCAL_CLUSTER], Math.sin(p * Math.PI) * 0.8);
-            ctx.beginPath(); ctx.arc(px2, py2, 3.5, 0, Math.PI * 2); ctx.fill();
+        // Define expected logical colors
+        const nColors = SENSORS.map(s => {
+            if (s.cluster === FOCAL_CLUSTER) return C.srv[FOCAL_CLUSTER];
+            if (m === 'zero') return '#9CA3AF';
+            if (m === 'neighbor') return ADJ[s.id].some(nb => SENSORS[nb].cluster === FOCAL_CLUSTER) ? '#60A5FA' : '#D1D5DB';
+            return C.srv[FOCAL_CLUSTER]; // propagation fills all
         });
-    }
 
-    // Feature propagation: iterative diffusion X^(k+1) = (1-α)·Ã·X^(k) + α·X₀
-    // Visualized as concentric ring waves expanding from A's sensors outward,
-    // lighting up unknown sensors progressively as the diffusion iterations proceed.
-    function drawFeaturePropagation(time) {
-        // BFS from focal cluster to compute graph distance
-        const bfsDist = new Array(24).fill(-1);
-        const bfsQ = SENSORS.filter(s => s.cluster === FOCAL_CLUSTER).map(s => s.id);
-        bfsQ.forEach(id => (bfsDist[id] = 0));
-        for (let h = 0; h < bfsQ.length; h++) {
-            const u = bfsQ[h];
-            for (const v of ADJ[u]) { if (bfsDist[v] < 0) { bfsDist[v] = bfsDist[u] + 1; bfsQ.push(v); } }
-        }
-        const maxDist = Math.max(...bfsDist.filter(d => d >= 0));
+        // 1. Calculate positions for each node
+        const positions = SENSORS.map((s, i) => {
+            const origin = px(s), targetX = matX_X, targetY = matY_start + i * 6;
+            let cX = lerp(origin.x, targetX, e_flyOut);
+            let cY = lerp(origin.y, targetY, e_flyOut);
+            
+            // Output flight overrides basic position
+            if (p_shoot > 0 && p_flyBack > 0) {
+                const sTargetX = nnBox_X + 40, sTargetY = matY_start + i * 6;
+                return { x: lerp(sTargetX, origin.x, e_flyBack), y: lerp(sTargetY, origin.y, e_flyBack) };
+            }
+            // Matrix insert shifts right
+            const insertOff = lerp(0, nnBox_X - targetX, e_insert);
+            return { x: cX + insertOff, y: cY };
+        });
 
-        // Wave phase: slow cycle representing one full diffusion iteration
-        const wavePeriod = 3000; // ms per iteration
-        const wavePhase = (time % wavePeriod) / wavePeriod; // 0..1
-
-        // Draw diffusion rings expanding from focal cluster boundary
-        // Each ring at radius r lights up sensors at distance r from A
-        const focalCenter = pxLL(clusterCenter(FOCAL_CLUSTER).lat, clusterCenter(FOCAL_CLUSTER).lng);
-        for (let d = 1; d <= maxDist; d++) {
-            // Ring appears when wave reaches this distance
-            const ringPhase = d / maxDist;
-            const t = (wavePhase - ringPhase + 1) % 1; // 0=just arrived, 1=about to arrive again
-            const alpha = t < 0.3 ? t / 0.3 * 0.4 : (1 - (t - 0.3) / 0.7) * 0.15;
-            if (alpha < 0.01) continue;
-
-            // Highlight edges at this distance frontier
+        // 2. Draw Edges (Fade out progressively as they fly to Matrix)
+        const edgeAlpha = Math.max(0, 1 - p_flyOut * 1.5);
+        if (edgeAlpha > 0) {
+            ctx.lineWidth = 1.5;
             EDGES.forEach(([a, b]) => {
-                const da = bfsDist[a], db = bfsDist[b];
-                if (Math.min(da, db) !== d - 1 || Math.max(da, db) !== d) return;
-                const pa2 = px(SENSORS[da === d - 1 ? a : b]);
-                const pb2 = px(SENSORS[da === d - 1 ? b : a]);
-                ctx.strokeStyle = hexA(C.srv[FOCAL_CLUSTER], alpha * 2);
-                ctx.lineWidth = 2;
-                ctx.beginPath(); ctx.moveTo(pa2.x, pa2.y); ctx.lineTo(pb2.x, pb2.y); ctx.stroke();
-
-                // Particle on edge frontier
-                const edgeP = ((time * 0.001 + a * 0.2) % 1);
-                ctx.fillStyle = hexA(C.srv[FOCAL_CLUSTER], alpha * 3);
-                ctx.beginPath(); ctx.arc(lerp(pa2.x, pb2.x, edgeP), lerp(pa2.y, pb2.y, edgeP), 3, 0, Math.PI * 2); ctx.fill();
-            });
-
-            // Glow sensors at distance d (the ones being filled this iteration)
-            SENSORS.forEach(s => {
-                if (bfsDist[s.id] !== d) return;
-                const sp = px(s);
-                const gAlpha = alpha * 1.5;
-                const g = ctx.createRadialGradient(sp.x, sp.y, 0, sp.x, sp.y, 18);
-                g.addColorStop(0, hexA(C.srv[FOCAL_CLUSTER], gAlpha)); g.addColorStop(1, hexA(C.srv[FOCAL_CLUSTER], 0));
-                ctx.fillStyle = g; ctx.beginPath(); ctx.arc(sp.x, sp.y, 18, 0, Math.PI * 2); ctx.fill();
+                ctx.strokeStyle = `rgba(156,163,175,${edgeAlpha * 0.5})`;
+                ctx.beginPath(); ctx.moveTo(positions[a].x, positions[a].y); ctx.lineTo(positions[b].x, positions[b].y); ctx.stroke();
             });
         }
+
+        // 3. Draw Matrices (Forming equation)
+        const matOp = p_eqForm * (1 - p_insert);
+        if (matOp > 0) {
+            const aOff = lerp(0, nnBox_X - matA_X, e_insert);
+            const aX = matA_X + aOff;
+            ctx.globalAlpha = matOp;
+            // Bracket A
+            ctx.strokeStyle = '#6B7280'; ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.moveTo(aX - 25, matY_start - 3); ctx.lineTo(aX - 28, matY_start - 3); ctx.lineTo(aX - 28, matY_start + 145); ctx.lineTo(aX - 25, matY_start + 145); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(aX + 25, matY_start - 3); ctx.lineTo(aX + 28, matY_start - 3); ctx.lineTo(aX + 28, matY_start + 145); ctx.lineTo(aX + 25, matY_start + 145); ctx.stroke();
+            ctx.fillStyle = '#6B7280'; ctx.font = 'bold 12px Inter'; ctx.textAlign = 'center'; ctx.fillText('Ã', aX, matY_start - 12);
+            ctx.font = 'bold 15px Inter'; ctx.fillText('×', aX + 40, hudY);
+            
+            // Matrix A dots
+            for (let r = 0; r < 24; r++) { for (let c = 0; c < 24; c++) {
+                const isEdge = ADJ[r].includes(c) || r === c;
+                ctx.fillStyle = isEdge ? '#374151' : '#E5E7EB';
+                ctx.fillRect((aX - 23 + c * 2)|0, (matY_start + r * 6)|0, 1.5, 1.5);
+            }}
+            ctx.globalAlpha = 1;
+        }
+
+        // Bracket for Matrix X
+        const xOp = p_flyOut * (1 - p_insert);
+        if (xOp > 0) {
+            const xOff = lerp(0, nnBox_X - matX_X, e_insert);
+            const xx = matX_X + xOff;
+            ctx.globalAlpha = xOp;
+            ctx.strokeStyle = '#6B7280'; ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.moveTo(xx - 8, matY_start - 3); ctx.lineTo(xx - 11, matY_start - 3); ctx.lineTo(xx - 11, matY_start + 145); ctx.lineTo(xx - 8, matY_start + 145); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(xx + 8, matY_start - 3); ctx.lineTo(xx + 11, matY_start - 3); ctx.lineTo(xx + 11, matY_start + 145); ctx.lineTo(xx + 8, matY_start + 145); ctx.stroke();
+            ctx.fillStyle = '#6B7280'; ctx.font = 'bold 12px Inter'; ctx.textAlign = 'center'; ctx.fillText('X', xx, matY_start - 12);
+            ctx.globalAlpha = 1;
+        }
+
+        // 4. Draw GNN Processing Box
+        ctx.fillStyle = '#1E293B';
+        drawRoundRect(ctx, nnBox_X - 35, hudY - 70, 70, 140, 8); ctx.fill();
+        ctx.fillStyle = 'white'; ctx.font = 'bold 14px Inter'; ctx.textAlign = 'center'; ctx.textBaseline='middle';
+        ctx.fillText('GNN', nnBox_X, hudY - 14);
+        ctx.fillText('Layer', nnBox_X, hudY + 14);
+
+        if (p_compute > 0 && p_compute < 1) {
+            const pulse = Math.sin(p_compute * Math.PI * 6) * 0.5 + 0.5;
+            ctx.strokeStyle = hexA('#3B82F6', pulse); ctx.lineWidth = 4;
+            drawRoundRect(ctx, nnBox_X - 37, hudY - 72, 74, 144, 10); ctx.stroke();
+        }
+
+        // 5. Draw Output Bracket H 
+        if (p_shoot > 0 && p_flyBack < 1) {
+            const hX = nnBox_X + 40;
+            ctx.globalAlpha = p_shoot * (1 - p_flyBack);
+            ctx.strokeStyle = '#10B981'; ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.moveTo(hX - 8, matY_start - 3); ctx.lineTo(hX - 11, matY_start - 3); ctx.lineTo(hX - 11, matY_start + 145); ctx.lineTo(hX - 8, matY_start + 145); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(hX + 8, matY_start - 3); ctx.lineTo(hX + 11, matY_start - 3); ctx.lineTo(hX + 11, matY_start + 145); ctx.lineTo(hX + 8, matY_start + 145); ctx.stroke();
+            ctx.fillStyle = '#10B981'; ctx.font = 'bold 12px Inter'; ctx.textAlign = 'center'; ctx.fillText('H', hX, matY_start - 12);
+            ctx.globalAlpha = 1;
+        }
+
+        // 6. Draw Nodes 
+        positions.forEach((p, i) => {
+            let nodeAlpha = 1;
+            if (p_insert > 0 && p_shoot === 0) nodeAlpha = 1 - e_insert;
+            let col = nColors[i];
+            
+            if (p_shoot > 0) {
+                nodeAlpha = 1;
+                col = p_flyBack > 0.95 ? C.srv[SENSORS[i].cluster] : '#10B981';
+            }
+
+            const scale = p_flyOut === 0 ? 1 : lerp(1, 0.35, e_flyOut);
+            const finalScale = p_shoot > 0 ? lerp(0.35, 1.0, e_flyBack) : scale;
+
+            ctx.globalAlpha = nodeAlpha;
+            if (finalScale > 0.8) {
+                const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 14);
+                g.addColorStop(0, hexA(col, 0.3)); g.addColorStop(1, hexA(col, 0));
+                ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, 14, 0, Math.PI * 2); ctx.fill();
+            }
+
+            ctx.fillStyle = col;
+            if (p_shoot === 0 && p_flyOut === 0 && m === 'zero' && SENSORS[i].cluster !== FOCAL_CLUSTER) {
+                ctx.strokeStyle = '#D1D5DB'; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]);
+                ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+                ctx.fillStyle = '#C4C4C4'; ctx.font = 'bold 8px Inter'; ctx.textAlign = 'center'; ctx.textBaseline='middle';
+                ctx.fillText('0', p.x, p.y); ctx.textBaseline='alphabetic';
+            } else if (p_shoot === 0 && p_flyOut === 0 && m === 'neighbor' && SENSORS[i].cluster !== FOCAL_CLUSTER) {
+                const isNbr = ADJ[i].some(nb => SENSORS[nb].cluster === FOCAL_CLUSTER);
+                ctx.fillStyle = 'white'; ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = hexA(col, isNbr ? 0.7 : 0.3); ctx.beginPath(); ctx.arc(p.x, p.y, 6, -Math.PI/2, Math.PI/2); ctx.fill();
+                ctx.strokeStyle = hexA(col, isNbr ? 0.7 : 0.3); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, Math.PI * 2); ctx.stroke();
+            } else {
+                ctx.beginPath(); ctx.arc(p.x, p.y, 7 * finalScale, 0, Math.PI * 2); ctx.fill();
+                if (finalScale > 0.3) { ctx.fillStyle='white'; ctx.beginPath(); ctx.arc(p.x, p.y, 4 * finalScale, 0, Math.PI*2); ctx.fill(); }
+            }
+            ctx.globalAlpha = 1;
+        });
+        
+        // 7. Splash Effect when done
+        if (p_flyBack > 0.95) {
+            const sAlpha = 1 - (p_flyBack - 0.95) / 0.05;
+            SENSORS.forEach(s => {
+                const p = px(s);
+                ctx.strokeStyle = hexA('#10B981', sAlpha); ctx.lineWidth = 2.5;
+                ctx.beginPath(); ctx.arc(p.x, p.y, 14 + (1-sAlpha)*16, 0, Math.PI*2); ctx.stroke();
+            });
+        }
+        ctx.restore();
     }
 
     // ===== Resilience overlay — rerouting arrows from sensors to nearest online server =====
@@ -742,47 +788,12 @@
         mp.classList.add('visible');
 
         const m = state.imputeMethod;
-        let nodeVals = [];
-        if (m === 'zero') {
-            nodeVals = [{c:'v-real',t:'95'}, {c:'v-zero',t:'0'}, {c:'v-zero',t:'0'}, {c:'v-zero',t:'0'}];
-        } else if (m === 'neighbor') {
-            nodeVals = [{c:'v-real',t:'95'}, {c:'v-avg',t:'47'}, {c:'v-zero',t:'0'}, {c:'v-avg',t:'47'}];
-        } else {
-            nodeVals = [{c:'v-real',t:'95'}, {c:'v-prop',t:'78'}, {c:'v-prop',t:'65'}, {c:'v-prop',t:'70'}];
-        }
-
-        const cellsHTML = nodeVals.map(v => `<div class="mat-cell ${v.c}">${v.t}</div>`).join('');
         const mName = m === 'zero' ? 'Zero-fill' : m === 'neighbor' ? '이웃 평균' : '특징 전파';
 
-        mp.innerHTML = `<h2>🧮 GNN 행렬 곱셈 시각화</h2>
-        <p class="desc">선택된 <strong>${mName}</strong> 결과를 통과한 특징 행렬 <span style="font-family:monospace; font-weight:bold;">X</span>가 GNN 학습에 입력됩니다.</p>
-        <div class="math-eq">H<sup>(l+1)</sup> = σ( Ã · X<sup>(l)</sup> · W )</div>
-        <div class="matrix-container">
-            <div style="text-align:center;">
-                <div style="font-size:11px; color:#6B7280; font-weight:bold; margin-bottom:2px;">Ã (인접행렬)</div>
-                <div class="matrix" style="grid-template-columns: repeat(4, 14px);">
-                    <div class="mat-cell gray">1</div><div class="mat-cell gray">1</div><div class="mat-cell gray">0</div><div class="mat-cell gray">1</div>
-                    <div class="mat-cell gray">1</div><div class="mat-cell gray">1</div><div class="mat-cell gray">1</div><div class="mat-cell gray">0</div>
-                    <div class="mat-cell gray">0</div><div class="mat-cell gray">1</div><div class="mat-cell gray">1</div><div class="mat-cell gray">1</div>
-                    <div class="mat-cell gray">1</div><div class="mat-cell gray">0</div><div class="mat-cell gray">1</div><div class="mat-cell gray">1</div>
-                </div>
-            </div>
-            <div style="font-size:16px; font-weight:bold; color:var(--text2);">×</div>
-            <div style="text-align:center;">
-                <div style="font-size:11px; color:#6B7280; font-weight:bold; margin-bottom:2px;">X (특징)</div>
-                <div class="matrix" style="grid-template-columns: 14px;">
-                    ${cellsHTML}
-                </div>
-            </div>
-            <div style="font-size:16px; font-weight:bold; color:var(--text2);">⇒</div>
-            <div class="nn-block">
-                <div class="pulse"></div>
-                <span>GNN</span>
-                <span>Layer</span>
-            </div>
-        </div>
+        mp.innerHTML = `<h2>🧮 GNN 다이나믹 연산 모델</h2>
+        <p class="desc" style="margin-bottom: 270px;">지도상의 관측 데이터(센서 네트워크 변수)가 행렬 구조로 재배열되어 시공간 특징을 학습하는 과정을 역동적으로 추적합니다. (현재 보간 상태: <strong>${mName}</strong>)</p>
         <div style="font-size:11.5px; line-height:1.5; color:var(--text2); background:#F3F4F6; padding:10px; border-radius:8px;">
-            행렬 곱 연산(Ã × X)을 통해 <strong>주변 이웃 센서 간의 상태 정보</strong> 패턴이 혼합되고, 뉴럴넷 가중치(W)를 통해 특징(Feature)이 추출됩니다.
+            모든 센서 노드가 허공으로 떠오르며 <strong>인접행렬(Ã)</strong>과 <strong>특징벡터(X)</strong>로 치환되고, 딥러닝 뉴럴 네트워크(GNN Layer)를 거쳐 특징 임베딩(H)으로 업데이트되어 다시 지도상의 노드로 회귀합니다.
         </div>`;
     }
 

@@ -19,7 +19,7 @@ html, body { width: 100%; height: 100vh; overflow: hidden; font-family: var(--fo
 /* ===== Map & Canvas ===== */
 #map { position: absolute; inset: 0; z-index: 1; }
 .leaflet-control-attribution { font-size: 9px !important; opacity: 0.5; }
-#overlay { position: absolute; inset: 0; z-index: 400; pointer-events: none; }
+#overlay { position: absolute; inset: 0; z-index: 600; pointer-events: none; }
 
 /* ===== Floating Panels ===== */
 .panel { position: absolute; z-index: 500; background: var(--bg); border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid var(--border); }
