@@ -84,13 +84,6 @@
     function trafficColor(sp) { return sp > 45 ? C.trafficFree : sp > 28 ? C.trafficMod : C.trafficJam; }
     function trafficCondKR(sp) { return sp > 45 ? { t: '원활', c: 'free' } : sp > 28 ? { t: '서행', c: 'moderate' } : { t: '정체', c: 'congested' }; }
 
-    const TRAFFIC_ACTUAL = [];
-    for (let i = 0; i < 48; i++) TRAFFIC_ACTUAL.push(trafficSpeed(i * 0.5, 42));
-    function makePredicted(m) {
-        const n = { zero: 16, neighbor: 8, propagation: 3 }[m] || 3;
-        return TRAFFIC_ACTUAL.map((v, i) => Math.max(5, v + (Math.sin(i * 3.7 + m.length) * 0.5 - 0.25) * n * 2));
-    }
-
     // ===== Loss curves =====
     function makeLoss(m) {
         const c = { zero: { d: 14, f: 0.34, n: 0.035 }, neighbor: { d: 22, f: 0.19, n: 0.02 }, propagation: { d: 32, f: 0.07, n: 0.012 } }[m];
@@ -146,7 +139,7 @@
 
         if (state.flPlaying && state.mode === 'fl') {
             state.flProgress += 0.004 * state.flSpeed;
-            if (state.flProgress >= 1) { state.flProgress = 0; state.flStep = (state.flStep + 1) % 4; if (state.flStep === 0) state.flRound = Math.min(100, state.flRound + 1); updateFLPanel(); }
+            if (state.flProgress >= 1) { state.flProgress = 0; state.flStep = (state.flStep + 1) % 5; if (state.flStep === 0) state.flRound = Math.min(100, state.flRound + 1); updateFLPanel(); }
         }
         // GNN diffusion phase advances
         if (state.mode === 'gnn' && state.lossFrame < 99) state.lossFrame += 0.2;
@@ -350,22 +343,51 @@
         for (let ci = 0; ci < 4; ci++) {
             const sp = pxLL(clusterCenter(ci).lat, clusterCenter(ci).lng);
             if (step === 0) {
-                // Local training: pulsing glow around edge server
+                // Sensor -> Edge Server (Data collection)
+                SENSORS.filter(s => s.cluster === ci).forEach((s, idx) => {
+                    const sp_sensor = px(s);
+                    const p = prog * 1.5 - (idx % 4) * 0.12; 
+                    if (p >= 0 && p <= 1.1) {
+                        // Draw small data particle
+                        const s_x = lerp(sp_sensor.x, sp.x, clamp(p, 0, 1)), s_y = lerp(sp_sensor.y, sp.y, clamp(p, 0, 1));
+                        ctx.fillStyle = C.srv[ci];
+                        ctx.beginPath(); ctx.arc(s_x, s_y, 2.5, 0, Math.PI * 2); ctx.fill();
+                    }
+                });
+            } else if (step === 1) {
+                // Local training: Active GNN Computation 
                 const pulse = Math.sin(time * 0.006 + ci) * 0.5 + 0.5;
                 const g = ctx.createRadialGradient(sp.x, sp.y, 0, sp.x, sp.y, 35);
                 g.addColorStop(0, hexA(C.srv[ci], 0.20 * pulse)); g.addColorStop(1, hexA(C.srv[ci], 0));
                 ctx.fillStyle = g; ctx.beginPath(); ctx.arc(sp.x, sp.y, 35, 0, Math.PI * 2); ctx.fill();
-            } else if (step === 1) {
+                
+                // Draw spinning GNN network indicator
+                const p2 = (time * 0.003) % (Math.PI * 2);
+                ctx.fillStyle = C.srv[ci]; ctx.font = 'bold 9.5px Inter'; ctx.textAlign = 'center'; 
+                ctx.fillText('GNN', sp.x, sp.y - 19);
+                const gx = sp.x, gy = sp.y - 30;
+                const r = 9;
+                for (let i = 0; i < 3; i++) {
+                    const a1 = p2 + i * (Math.PI * 2 / 3);
+                    const a2 = p2 + ((i + 1) % 3) * (Math.PI * 2 / 3);
+                    ctx.strokeStyle = hexA(C.srv[ci], 0.8); ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    ctx.moveTo(gx + Math.cos(a1) * r, gy + Math.sin(a1) * r);
+                    ctx.lineTo(gx + Math.cos(a2) * r, gy + Math.sin(a2) * r);
+                    ctx.stroke();
+                    ctx.beginPath(); ctx.arc(gx + Math.cos(a1) * r, gy + Math.sin(a1) * r, 2.5, 0, Math.PI*2); ctx.fill();
+                }
+            } else if (step === 2) {
                 // ◆ Model parameter packet → central server (ONCE)
                 const p = prog * 1.5 - ci * 0.1;
                 if (p >= 0 && p <= 1.1) drawDiamond(sp, cp, clamp(p, 0, 1), C.srv[ci]);
-            } else if (step === 3) {
+            } else if (step === 4) {
                 // ◆ Global model → each edge server (ONCE)
                 const p = prog * 1.5 - ci * 0.1;
                 if (p >= 0 && p <= 1.1) drawDiamond(cp, sp, clamp(p, 0, 1), C.central);
             }
         }
-        if (step === 2) {
+        if (step === 3) {
             // FedAvg aggregation: diamonds orbit the central server and spiral in
             C.srv.forEach((col, ci) => {
                 const p = clamp(prog * 1.5, 0, 1);
@@ -729,28 +751,65 @@
     }
 
     // ===== Charts =====
-    function drawTrafficChart() {
+    function drawTrafficChart(time) {
         const cvs = document.getElementById('traffic-canvas'); if (!cvs) return;
         const cw = cvs.parentElement.clientWidth - 24, ch = 90, dpr = devicePixelRatio || 1;
         cvs.width = cw * dpr; cvs.height = ch * dpr; cvs.style.width = cw + 'px'; cvs.style.height = ch + 'px';
         const c = cvs.getContext('2d'); c.scale(dpr, dpr); c.clearRect(0, 0, cw, ch);
-        const pred = makePredicted(state.mode === 'gnn' ? state.imputeMethod : 'propagation');
+        const m = state.mode === 'gnn' ? state.imputeMethod : 'propagation';
+        const hour = getSimHour(time);
+
         c.strokeStyle = '#F3F4F6'; c.lineWidth = 1;
         [0.25, 0.5, 0.75].forEach(r => { c.beginPath(); c.moveTo(0, ch * r); c.lineTo(cw, ch * r); c.stroke(); });
-        // Actual area
+        
+        const points = [];
+        const err_scale = { zero: 28, neighbor: 12, propagation: 3 }[m] || 3;
+        let col = { zero: '#9CA3AF', neighbor: '#F59E0B', propagation: '#10B981' }[m] || '#10B981';
+        if (state.mode === 'overview') col = '#EF4444'; // Overview legend matches RED
+
+        // Window: T - 6.5 hours to T + 1.5 hours
+        for (let i = 0; i <= 60; i++) {
+            const h = hour - 6.5 + (i / 60) * 8.0; 
+            const hWrapped = (h + 240) % 24; 
+            const actual = trafficSpeed(hWrapped, 42);
+            
+            // Generate non-smooth realistic noise per method
+            const noise = (Math.sin(hWrapped * 17.3 + m.length) * Math.cos(hWrapped * 23.8)) * err_scale;
+            let bias = { zero: 14, neighbor: 4, propagation: 0.5 }[m]; 
+            // Zero-fill is terribly biased during free flow
+            if (m === 'zero') bias += (actual - 20) * 0.45;
+            
+            let predicted = clamp(actual + noise - bias, 5, 65);
+            points.push({ actual, predicted });
+        }
+
+        // Area Fill
         c.beginPath();
-        TRAFFIC_ACTUAL.forEach((v, i) => { const x = (i / 47) * cw, y = ch - (v / 70) * ch; i === 0 ? c.moveTo(x, y) : c.lineTo(x, y); });
+        points.forEach((p, i) => { const x = (i / 60) * cw, y = ch - (p.actual / 70) * ch; i === 0 ? c.moveTo(x, y) : c.lineTo(x, y); });
         c.lineTo(cw, ch); c.lineTo(0, ch); c.closePath();
         const fg = c.createLinearGradient(0, 0, 0, ch); fg.addColorStop(0, 'rgba(59,130,246,0.15)'); fg.addColorStop(1, 'rgba(59,130,246,0)');
         c.fillStyle = fg; c.fill();
-        c.strokeStyle = '#3B82F6'; c.lineWidth = 2; c.beginPath();
-        TRAFFIC_ACTUAL.forEach((v, i) => { const x = (i / 47) * cw, y = ch - (v / 70) * ch; i === 0 ? c.moveTo(x, y) : c.lineTo(x, y); }); c.stroke();
-        // Predicted
-        c.strokeStyle = '#EF4444'; c.lineWidth = 1.5; c.setLineDash([5, 3]); c.beginPath();
-        pred.forEach((v, i) => { const x = (i / 47) * cw, y = ch - (v / 70) * ch; i === 0 ? c.moveTo(x, y) : c.lineTo(x, y); }); c.stroke(); c.setLineDash([]);
-        c.fillStyle = '#9CA3AF'; c.font = '9px Inter'; c.textAlign = 'center';
-        [0, 6, 12, 18, 24].forEach(h => c.fillText(h + 'h', (h / 24) * cw, ch - 2));
-        c.textAlign = 'left'; c.fillText('mph', 2, 10);
+        
+        // Actual Line
+        c.strokeStyle = '#3B82F6'; c.lineWidth = 2.5; c.beginPath();
+        points.forEach((p, i) => { const x = (i / 60) * cw, y = ch - (p.actual / 70) * ch; i === 0 ? c.moveTo(x, y) : c.lineTo(x, y); }); c.stroke();
+        
+        // Predicted Line
+        c.strokeStyle = col; c.lineWidth = 2; c.beginPath();
+        if (m === 'zero') { c.setLineDash([4, 4]); } else if (m === 'neighbor') { c.setLineDash([2, 3]); } else { c.setLineDash([]); }
+        points.forEach((p, i) => { const x = (i / 60) * cw, y = ch - (p.predicted / 70) * ch; i === 0 ? c.moveTo(x, y) : c.lineTo(x, y); }); 
+        c.stroke(); c.setLineDash([]);
+        
+        // Dynamic Playhead (Current time is at i=48.75 ~ x = cw * 6.5/8.0)
+        const playX = cw * (6.5 / 8.0); 
+        c.strokeStyle = '#EF4444'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(playX, 0); c.lineTo(playX, ch); c.stroke();
+        
+        // Find index that matches playhead
+        const pIdx = Math.floor(60 * (6.5 / 8.0));
+        c.fillStyle = '#EF4444'; c.beginPath(); c.arc(playX, ch - (points[pIdx].actual / 70) * ch, 3.5, 0, Math.PI*2); c.fill();
+        
+        c.fillStyle = '#9CA3AF'; c.font = '9px Inter'; c.textAlign = 'right';
+        c.fillText('현재', playX - 4, 10);
     }
 
     function drawLossChart() {
@@ -783,9 +842,10 @@
     }
 
     setInterval(() => {
-        if (state.mode === 'overview' || state.mode === 'gnn') drawTrafficChart();
+        const time = performance.now();
+        if (state.mode === 'overview' || state.mode === 'gnn' || state.mode === 'resilience') drawTrafficChart(time);
         if (state.mode === 'gnn') drawLossChart();
-    }, 200);
+    }, 100);
 
     // ===== Panel HTML =====
     function getOverviewPanel() {
@@ -798,32 +858,34 @@
         <div class="stat-row"><span class="stat-label">시뮬레이션 시각</span><span class="time-badge"><span class="clock">🕐</span> <span id="sim-time">07:00</span></span></div>
         <div class="stat-row"><span class="stat-label">교통 상태</span><span class="traffic-condition free" id="traffic-cond">원활</span></div>
         <div class="section-divider"></div>
-        <h3>교통량 (실제 vs 예측)</h3>
+        <h3>교통량 추이 (실시간 Scrolling)</h3>
         <div class="chart-wrap"><canvas id="traffic-canvas" height="90"></canvas>
-            <div class="curve-legend"><div class="curve-legend-item"><div class="curve-legend-line" style="background:#3B82F6"></div>실제</div><div class="curve-legend-item"><div class="curve-legend-line" style="background:#EF4444"></div>예측</div></div>
+            <div class="curve-legend"><div class="curve-legend-item"><div class="curve-legend-line" style="background:#3B82F6"></div>실제흐름</div><div class="curve-legend-item"><div class="curve-legend-line" style="background:#EF4444"></div>모델 예측</div></div>
         </div>
         <div class="hint">💡 상단 모드 버튼으로 각 단계를 탐색해 보세요</div>`;
     }
 
     const FL_DESCS = [
-        '각 엣지 서버가 자신의 센서 데이터로 로컬 STGNN 모델을 학습합니다. 원본 데이터는 외부로 전송되지 않습니다.',
-        '학습된 모델 파라미터만 중앙 서버로 전송합니다. 전체 데이터의 약 7% 크기입니다.',
-        '중앙 서버에서 모든 로컬 파라미터를 FedAvg로 통합합니다. θ = (1/n) Σθᵢ',
-        '통합된 글로벌 모델을 모든 엣지 서버에 배포합니다.',
+        '지도상의 각 지역 센서들이 수집한 교통 데이터를 자신이 속한 엣지 서버(서버 A,B,C,D)로 전송합니다.',
+        '각 엣지 서버가 수집된 센서 데이터로 로컬 STGNN 모델을 학습합니다. 이 과정에서 원본 데이터는 외부로 절대 전송되지 않습니다.',
+        '학습이 완료된 모델 파라미터(가중치)만 중앙 서버로 전송합니다. 개인 프라이버시가 보호되며 파라미터는 전체 데이터 크기의 약 7%에 불과합니다.',
+        '중앙 서버에서 수신된 4개의 로컬 파라미터들을 FedAvg 알고리즘으로 평균내어 하나의 글로벌 모델로 통합합니다.',
+        '중앙 서버가 강화된 글로벌 모델 정보를 다시 모든 엣지 서버에 동기화(배포)하여 다음 라운드를 준비합니다.',
     ];
 
     function getFLPanel() {
         return `<h2>🔄 연합학습 과정</h2>
-        <p class="desc">4개 엣지 서버가 로컬 학습 후 모델 파라미터만 교환하여 글로벌 모델을 만듭니다.</p>
+        <p class="desc">4개 엣지 서버가 센서 데이터를 로컬 학습하고 수집된 파라미터만 교환하여 글로벌 모델을 만듭니다.</p>
         <div class="section-divider"></div>
         <div class="stat-row"><span class="stat-label">현재 라운드</span><span class="round-badge" id="fl-round-badge">1 / 100</span></div>
         <div class="step-track" id="step-track">
-            <div class="step-dot-wrap active" data-s="0"><div class="step-dot active">1</div><span class="step-name">로컬학습</span></div><div class="step-line"></div>
-            <div class="step-dot-wrap" data-s="1"><div class="step-dot">2</div><span class="step-name">전송</span></div><div class="step-line"></div>
-            <div class="step-dot-wrap" data-s="2"><div class="step-dot">3</div><span class="step-name">통합</span></div><div class="step-line"></div>
-            <div class="step-dot-wrap" data-s="3"><div class="step-dot">4</div><span class="step-name">배포</span></div>
+            <div class="step-dot-wrap active" data-s="0"><div class="step-dot active">1</div><span class="step-name">수집</span></div><div class="step-line"></div>
+            <div class="step-dot-wrap" data-s="1"><div class="step-dot">2</div><span class="step-name">로컬학습</span></div><div class="step-line"></div>
+            <div class="step-dot-wrap" data-s="2"><div class="step-dot">3</div><span class="step-name">전송</span></div><div class="step-line"></div>
+            <div class="step-dot-wrap" data-s="3"><div class="step-dot">4</div><span class="step-name">통합</span></div><div class="step-line"></div>
+            <div class="step-dot-wrap" data-s="4"><div class="step-dot">5</div><span class="step-name">배포</span></div>
         </div>
-        <div id="fl-step-desc" class="desc" style="min-height:40px">${FL_DESCS[0]}</div>
+        <div id="fl-step-desc" class="desc" style="min-height:45px">${FL_DESCS[0]}</div>
         <div class="section-divider"></div>
         <div class="controls-row">
             <button class="ctrl-btn" id="fl-play" title="재생">▶</button>
@@ -874,46 +936,48 @@
             <tr class="${m==='propagation'?'active-row':''}"><td class="method-name">특징 전파</td><td>0.07</td><td>5.2%</td><td><span class="speed-bar"><span class="speed-block on"></span><span class="speed-block on"></span><span class="speed-block on"></span></span></td></tr>
         </table>
         <div class="section-divider"></div>
-        <h3>교통량 (실제 vs 예측)</h3>
+        <h3>교통량 추이 (실시간 Scrolling)</h3>
         <div class="chart-wrap"><canvas id="traffic-canvas" height="90"></canvas>
-            <div class="curve-legend"><div class="curve-legend-item"><div class="curve-legend-line" style="background:#3B82F6"></div>실제</div><div class="curve-legend-item"><div class="curve-legend-line" style="background:#EF4444"></div>예측 (${mLabel})</div></div>
+            <div class="curve-legend"><div class="curve-legend-item"><div class="curve-legend-line" style="background:#3B82F6"></div>실제흐름</div><div class="curve-legend-item"><div class="curve-legend-line" style="background:${m==='zero'?'#9CA3AF':m==='neighbor'?'#F59E0B':'#10B981'}"></div>예측 (${mLabel})</div></div>
         </div>
         <div class="hint">🖱️ 지도 위의 센서를 클릭하면 신호 전파를 볼 수 있습니다</div>`;
     }
 
     function getResiliencePanel() {
         const onCnt = state.online.filter(Boolean).length;
-        const acc = [0, 88, 92, 94, 95][onCnt];
+        const acc = [0, 98.8, 97.4, 96.5, 95.0][onCnt];
         const latency = [0, 480, 240, 150, 85][onCnt];
+        const accColor = acc >= 98 ? '#10B981' : acc >= 96 ? '#3B82F6' : '#8B5CF6';
+
         let rr = '';
         if (onCnt < 4 && onCnt > 0) {
             rr = '<div class="reroute-info">';
-            for (let ci = 0; ci < 4; ci++) { if (state.online[ci]) continue; const n = nearestOnlineCluster({ lat: clusterCenter(ci).lat, lng: clusterCenter(ci).lng, cluster: ci }); if (n >= 0) rr += `<div class="reroute-line">${C.srvName[ci]} 센서 <span class="reroute-arrow">→</span> <strong style="color:${C.srv[n]}">${C.srvName[n]}</strong>로 재배정</div>`; }
+            for (let ci = 0; ci < 4; ci++) { if (state.online[ci]) continue; const n = nearestOnlineCluster({ lat: clusterCenter(ci).lat, lng: clusterCenter(ci).lng, cluster: ci }); if (n >= 0) rr += `<div class="reroute-line">${C.srvName[ci]} 센서 <span class="reroute-arrow">→</span> <strong style="color:${C.srv[n]}">${C.srvName[n]}</strong>로 집중 할당</div>`; }
             rr += '</div>';
         }
         return `<h2>⚡ 서버 장애 및 우회(Rerouting)</h2>
-        <p class="desc">서버 장애 시 인접 서버로 데이터를 우회 전송합니다. 센서 정보가 보존되어 <strong>정확도는 유지</strong>되지만, 서버 간 통신이 몰려 <strong>네트워크 통신 지연(Latency)</strong>이 증가합니다.</p>
+        <p class="desc">장애 발생 시 인접 서버로 데이터가 우회 전송됩니다. 특정 중앙 서버로 데이터가 모이면서 GNN 연산에 필요한 정보(결측치)가 채워져 <strong>중앙 집중 방식의 학습과 예측 일치도는 역으로 상승</strong>합니다. 하지만 중앙 집중된 병목 트래픽으로 <strong>네트워크 지연(Latency)</strong>은 기하급수적으로 악화됩니다.</p>
         <div class="section-divider"></div>
         <h3>엣지 서버 제어판</h3>
         <div class="server-grid">${[0,1,2,3].map(i => `<button class="srv-btn ${state.online[i]?'online':'offline'}" data-server="${i}"><span class="srv-icon">🖥️</span><span class="srv-name">${C.srvName[i]}</span><span class="srv-status">${state.online[i]?'온라인':'오프라인'}</span></button>`).join('')}</div>
         ${rr}
         <div class="section-divider"></div>
-        <h3>시스템 영향도</h3>
+        <h3>시스템 영향도 (Trade-Off)</h3>
         <div style="display:flex; justify-content:center; align-items:center; gap:20px; padding:10px 0;">
             <div style="text-align:center;">
                 <svg class="accuracy-ring" viewBox="0 0 120 120">
                     <circle cx="60" cy="60" r="50" fill="none" stroke="#E5E7EB" stroke-width="8"/>
-                    <circle cx="60" cy="60" r="50" fill="none" stroke="${acc>=90?'#10B981':acc>=80?'#F59E0B':'#EF4444'}" stroke-width="8" stroke-dasharray="314" stroke-dashoffset="${314*(1-acc/100)}" stroke-linecap="round" transform="rotate(-90 60 60)" style="transition:all .6s ease"/>
+                    <circle cx="60" cy="60" r="50" fill="none" stroke="${accColor}" stroke-width="8" stroke-dasharray="314" stroke-dashoffset="${314*(1-acc/100)}" stroke-linecap="round" transform="rotate(-90 60 60)" style="transition:all .6s ease"/>
                     <text x="60" y="66" text-anchor="middle" fill="#1F2937" font-size="22" font-weight="800">${acc}%</text>
                 </svg>
-                <div style="font-size:12px; font-weight:600; color:var(--text2); margin-top:8px;">예측 정확도</div>
+                <div style="font-size:12px; font-weight:600; color:var(--text2); margin-top:8px;">중앙 집중 모델 일치도</div>
             </div>
             <div style="text-align:center; padding:15px; background:#FEF2F2; border-radius:12px; min-width:110px;">
                 <div style="font-size:26px; font-weight:800; color:#EF4444;">${latency}<span style="font-size:14px; font-weight:600;">ms</span></div>
-                <div style="font-size:12px; font-weight:600; color:#991B1B; margin-top:4px;">우회 지연시간</div>
+                <div style="font-size:12px; font-weight:600; color:#991B1B; margin-top:4px;">우회 통신 지연</div>
             </div>
         </div>
-        <div class="hint">⚠️ 장애 시 우회하는 센서의 색상이 <b>해당 서버의 색</b>으로 변경되며 화살표가 표시됩니다.</div>`;
+        <div class="hint">⚠️ 장애 시 우회하는 센서의 색상이 <b>해당 목적지 서버의 색</b>으로 변경되며 화살표가 표시됩니다.</div>`;
     }
 
     function renderMathPanel() {
@@ -1030,7 +1094,7 @@
         const play = document.getElementById('fl-play');
         if (play) play.addEventListener('click', () => { state.flPlaying = !state.flPlaying; play.textContent = state.flPlaying ? '⏸' : '▶'; play.classList.toggle('active', state.flPlaying); });
         const sb = document.getElementById('fl-step-btn');
-        if (sb) sb.addEventListener('click', () => { state.flStep = (state.flStep + 1) % 4; state.flProgress = 0; if (state.flStep === 0) state.flRound = Math.min(100, state.flRound + 1); updateFLPanel(); });
+        if (sb) sb.addEventListener('click', () => { state.flStep = (state.flStep + 1) % 5; state.flProgress = 0; if (state.flStep === 0) state.flRound = Math.min(100, state.flRound + 1); updateFLPanel(); });
         const rb = document.getElementById('fl-reset');
         if (rb) rb.addEventListener('click', () => { state.flRound = 1; state.flStep = 0; state.flProgress = 0; state.flPlaying = false; const pb = document.getElementById('fl-play'); if (pb) { pb.textContent = '▶'; pb.classList.remove('active'); } updateFLPanel(); });
         const si = document.getElementById('fl-speed');
