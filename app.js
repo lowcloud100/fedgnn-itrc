@@ -361,11 +361,11 @@
                 g.addColorStop(0, hexA(C.srv[ci], 0.20 * pulse)); g.addColorStop(1, hexA(C.srv[ci], 0));
                 ctx.fillStyle = g; ctx.beginPath(); ctx.arc(sp.x, sp.y, 35, 0, Math.PI * 2); ctx.fill();
                 
-                // Draw spinning GNN network indicator
+                // Draw spinning GNN network indicator (Shifted up to avoid overlapping UI)
                 const p2 = (time * 0.003) % (Math.PI * 2);
                 ctx.fillStyle = C.srv[ci]; ctx.font = 'bold 9.5px Inter'; ctx.textAlign = 'center'; 
-                ctx.fillText('GNN', sp.x, sp.y - 19);
-                const gx = sp.x, gy = sp.y - 30;
+                ctx.fillText('GNN', sp.x, sp.y - 34);
+                const gx = sp.x, gy = sp.y - 45;
                 const r = 9;
                 for (let i = 0; i < 3; i++) {
                     const a1 = p2 + i * (Math.PI * 2 / 3);
@@ -498,14 +498,15 @@
     // ===== GNN overlay (Map-to-HUD Animation) =====
     function drawGNNAnimation(time) {
         const m = state.imputeMethod;
-        const cycle = 12000; // Slower animation cycle
+        const animEnd = 12000;
+        const cycle = 15000; // 3초 대기 후 부드럽게 종료되도록 사이클 연장
         const elapsed = time - state.gnnAnimStart;
         if (elapsed > cycle) {
             state.gnnAnimating = false;
             renderMathPanel();
             return;
         }
-        const t = (elapsed % cycle) / cycle;
+        const t = Math.min(elapsed / animEnd, 1.0);
 
         // HUD dimensions and location
         const panel = document.getElementById('math-panel');
@@ -568,12 +569,12 @@
             return { x: cX, y: cY };
         });
 
-        // 2. Draw Edges (Fade out progressively as they fly to Matrix)
-        const edgeAlpha = Math.max(0, 1 - p_flyOut * 1.5);
+        // 2. Draw Edges (Fade out progressively as they fly to Matrix, fade back in upon return)
+        const edgeAlpha = Math.min(1.0, Math.max(0, 1 - p_flyOut * 1.5) + p_flyBack);
         if (edgeAlpha > 0) {
             ctx.lineWidth = 1.5;
             EDGES.forEach(([a, b]) => {
-                ctx.strokeStyle = `rgba(156,163,175,${edgeAlpha * 0.5})`;
+                ctx.strokeStyle = `rgba(100,116,139,${edgeAlpha * 0.4})`;
                 ctx.beginPath(); ctx.moveTo(positions[a].x, positions[a].y); ctx.lineTo(positions[b].x, positions[b].y); ctx.stroke();
             });
         }
@@ -614,17 +615,21 @@
         }
 
         // 4. Draw GNN Processing Box
-        ctx.fillStyle = '#1E293B';
-        drawRoundRect(ctx, nnBox_X - 35, hudY - 70, 70, 140, 8); ctx.fill();
-        ctx.fillStyle = 'white'; ctx.font = 'bold 14px Inter'; ctx.textAlign = 'center'; ctx.textBaseline='middle';
-        ctx.fillText('GNN', nnBox_X, hudY - 14);
-        ctx.fillText('Layer', nnBox_X, hudY + 14);
+        ctx.globalAlpha = p_insert * (1 - e_flyBack);
+        if (ctx.globalAlpha > 0) {
+            ctx.fillStyle = '#1E293B';
+            drawRoundRect(ctx, nnBox_X - 35, hudY - 70, 70, 140, 8); ctx.fill();
+            ctx.fillStyle = 'white'; ctx.font = 'bold 14px Inter'; ctx.textAlign = 'center'; ctx.textBaseline='middle';
+            ctx.fillText('GNN', nnBox_X, hudY - 14);
+            ctx.fillText('Layer', nnBox_X, hudY + 14);
 
-        if (p_compute > 0 && p_compute < 1) {
-            const pulse = Math.sin(p_compute * Math.PI * 6) * 0.5 + 0.5;
-            ctx.strokeStyle = hexA('#3B82F6', pulse); ctx.lineWidth = 4;
-            drawRoundRect(ctx, nnBox_X - 37, hudY - 72, 74, 144, 10); ctx.stroke();
+            if (p_compute > 0 && p_compute < 1) {
+                const pulse = Math.sin(p_compute * Math.PI * 6) * 0.5 + 0.5;
+                ctx.strokeStyle = hexA('#3B82F6', pulse); ctx.lineWidth = 4;
+                drawRoundRect(ctx, nnBox_X - 37, hudY - 72, 74, 144, 10); ctx.stroke();
+            }
         }
+        ctx.globalAlpha = 1;
 
         // 5. Draw Output Bracket H 
         if (p_shoot > 0 && p_flyBack < 1) {
@@ -673,8 +678,13 @@
                 ctx.beginPath(); ctx.arc(p.x, p.y, 7 * finalScale, 0, Math.PI * 2); ctx.fill();
                 if (finalScale > 0.3) { ctx.fillStyle='white'; ctx.beginPath(); ctx.arc(p.x, p.y, 4 * finalScale, 0, Math.PI*2); ctx.fill(); }
             }
-            ctx.globalAlpha = 1;
         });
+        
+        // 지도가 다시 완전히 그려진 후 Node를 서서히 원래 상태로 페이드 아웃
+        let nodeFadeToMapAlpha = 0;
+        if (elapsed > cycle - 1500) {
+            nodeFadeToMapAlpha = (elapsed - (cycle - 1500)) / 1500;
+        }
         
         // 7. Splash Effect & Predicted Traffic Lines
         let sAlpha = 0;
@@ -692,6 +702,11 @@
         if (p_flyBack > 0.0) outTrafficAlpha = p_flyBack;
         else if (t < 0.05) outTrafficAlpha = 1;
         else if (p_flyOut > 0 && p_eqForm === 0) outTrafficAlpha = 1 - p_flyOut;
+
+        // 3초 대기 중 마지막 1.5초 동안 예측선 서서히 페이드아웃 (일반 지도로 자연스러운 전환)
+        if (elapsed > cycle - 1500) {
+            outTrafficAlpha *= Math.max(0, (cycle - elapsed) / 1500);
+        }
 
         if (outTrafficAlpha > 0) {
             const simHour = getSimHour(time);
@@ -763,7 +778,7 @@
         [0.25, 0.5, 0.75].forEach(r => { c.beginPath(); c.moveTo(0, ch * r); c.lineTo(cw, ch * r); c.stroke(); });
         
         const points = [];
-        const err_scale = { zero: 28, neighbor: 12, propagation: 3 }[m] || 3;
+        const err_scale = { zero: 28, neighbor: 12, propagation: 7 }[m] || 7;
         let col = { zero: '#9CA3AF', neighbor: '#F59E0B', propagation: '#10B981' }[m] || '#10B981';
         if (state.mode === 'overview') col = '#EF4444'; // Overview legend matches RED
 
@@ -773,8 +788,8 @@
             const hWrapped = (h + 240) % 24; 
             const actual = trafficSpeed(hWrapped, 42);
             
-            // Generate non-smooth realistic noise per method
-            const noise = (Math.sin(hWrapped * 17.3 + m.length) * Math.cos(hWrapped * 23.8)) * err_scale;
+            // Generate smooth realistic noise per method (lowered frequency to prevent aliasing wiggle)
+            const noise = (Math.sin(hWrapped * 4.3 + m.length) * Math.cos(hWrapped * 6.8)) * err_scale;
             let bias = { zero: 14, neighbor: 4, propagation: 0.5 }[m]; 
             // Zero-fill is terribly biased during free flow
             if (m === 'zero') bias += (actual - 20) * 0.45;
