@@ -51,6 +51,43 @@
     <!-- Bottom legend -->
     <div class="panel legend-panel" id="legend-panel"></div>
 
+    <!-- UI Scale Control Widget -->
+    <div class="scale-widget" id="scale-widget">
+        <button class="scale-toggle" id="scale-toggle" title="UI 크기 조절">
+            <span class="scale-toggle-icon">⚙</span>
+        </button>
+        <div class="scale-drawer" id="scale-drawer">
+            <div class="scale-header">UI 크기 조절</div>
+            <div class="scale-slider-row">
+                <span class="scale-label-sm">A</span>
+                <input type="range" id="scale-slider" min="50" max="200" value="100" step="5">
+                <span class="scale-label-lg">A</span>
+            </div>
+            <div class="scale-value-display" id="scale-value">100%</div>
+            <div class="scale-presets">
+                <button class="scale-preset-btn" data-scale="75">75%</button>
+                <button class="scale-preset-btn active" data-scale="100">100%</button>
+                <button class="scale-preset-btn" data-scale="125">125%</button>
+                <button class="scale-preset-btn" data-scale="150">150%</button>
+            </div>
+            <button class="scale-reset-btn" id="scale-reset">↺ 초기화</button>
+            <div class="scale-divider"></div>
+            <div class="scale-header">그래프 크기 조절</div>
+            <div class="scale-slider-row">
+                <span class="scale-label-sm">●</span>
+                <input type="range" id="graph-scale-slider" min="50" max="200" value="100" step="5">
+                <span class="scale-label-lg">●</span>
+            </div>
+            <div class="scale-value-display" id="graph-scale-value">100%</div>
+            <div class="scale-presets">
+                <button class="graph-preset-btn" data-scale="75">75%</button>
+                <button class="graph-preset-btn active" data-scale="100">100%</button>
+                <button class="graph-preset-btn" data-scale="150">150%</button>
+                <button class="graph-preset-btn" data-scale="200">200%</button>
+            </div>
+        </div>
+    </div>
+
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="app.js"></script>
 </body>

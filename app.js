@@ -41,11 +41,11 @@
     ];
 
     const EDGES = [
-        [0,1], [0,2], [1,3], [2,4], [3,5], [4,5], [2,3],
-        [6,7], [7,8], [6,9], [8,9], [8,10], [10,11], [9,10],
-        [12,13], [12,14], [13,15], [14,16], [15,16], [16,17], [13,14],
-        [18,19], [18,20], [19,22], [20,21], [21,22], [21,23], [19,20],
-        [5,7], [3,8], [11,12], [10,13], [17,22], [14,19], [18,2], [19,4]
+        [0, 1], [0, 2], [1, 3], [2, 4], [3, 5], [4, 5], [2, 3],
+        [6, 7], [7, 8], [6, 9], [8, 9], [8, 10], [10, 11], [9, 10],
+        [12, 13], [12, 14], [13, 15], [14, 16], [15, 16], [16, 17], [13, 14],
+        [18, 19], [18, 20], [19, 22], [20, 21], [21, 22], [21, 23], [19, 20],
+        [5, 7], [3, 8], [11, 12], [10, 13], [17, 22], [14, 19], [18, 2], [19, 4]
     ];
 
     const CENTRAL_POS = { lat: 34.045, lng: -118.355 };
@@ -77,7 +77,7 @@
         } else if (isDowntown) {
             if (hour >= 11 && hour <= 20) base = 35; // Congested all day
         } else {
-            if (hour > 8 && hour < 21) base = 50; 
+            if (hour > 8 && hour < 21) base = 50;
         }
         return base + Math.sin(seed * 7.13 + hour * 1.5) * 5;
     }
@@ -98,7 +98,7 @@
     EDGES.forEach((_, i) => { for (let j = 0; j < 3; j++) edgeParticles.push({ edge: i, pos: Math.random(), dir: j % 2 === 0 ? 1 : -1 }); });
 
     // ===== State =====
-    const state = { mode: 'overview', flPlaying: false, flRound: 1, flStep: 0, flProgress: 0, flSpeed: 3, imputeMethod: 'zero', waves: [], lossFrame: 0, online: [true, true, true, true], gnnAnimating: false, gnnAnimStart: 0 };
+    const state = { mode: 'overview', flPlaying: false, flRound: 1, flStep: 0, flProgress: 0, flSpeed: 3, imputeMethod: 'zero', waves: [], lossFrame: 0, online: [true, true, true, true], gnnAnimating: false, gnnAnimStart: 0, graphScale: 1 };
 
     // ===== Map & Canvas =====
     let map, canvas, ctx;
@@ -149,14 +149,14 @@
 
     // ===== Draw edges =====
     function drawEdges(time, hour) {
-        if (state.mode === 'gnn' && state.gnnAnimating) return; // Handled dynamically in drawGNNAnimation
+        if (state.mode === 'gnn' && state.gnnAnimating) return;
+        const G = state.graphScale;
         EDGES.forEach(([a, b], ei) => {
             const pa = px(SENSORS[a]), pb = px(SENSORS[b]);
-            let color = 'rgba(100,116,139,0.2)', lw = 1.5;
+            let color = 'rgba(100,116,139,0.2)', lw = 1.5 * G;
             if (state.mode === 'overview' || state.mode === 'resilience') {
-                // 실선 트래픽 표시 (장애 모드에서도 동일하게 실선 트래픽 표시 유지)
                 color = trafficColor(trafficSpeed(hour, ei));
-                lw = 2.5; 
+                lw = 2.5 * G;
             }
             ctx.strokeStyle = color; ctx.lineWidth = lw;
             ctx.globalAlpha = (state.mode === 'overview' || state.mode === 'resilience') ? 0.7 : 0.4;
@@ -168,6 +168,7 @@
     // ===== Traffic particles =====
     function drawTrafficParticles(time, hour) {
         if (state.mode !== 'overview' && state.mode !== 'resilience') return;
+        const G = state.graphScale;
         edgeParticles.forEach(p => {
             p.pos += 0.002 * (trafficSpeed(hour, p.edge) / 60) * p.dir;
             if (p.pos > 1) p.pos = 0; if (p.pos < 0) p.pos = 1;
@@ -175,54 +176,53 @@
             if (state.mode === 'resilience' && !state.online[SENSORS[a].cluster] && !state.online[SENSORS[b].cluster]) return;
             const pa = px(SENSORS[a]), pb = px(SENSORS[b]);
             ctx.globalAlpha = 0.65; ctx.fillStyle = trafficColor(trafficSpeed(hour, p.edge));
-            ctx.beginPath(); ctx.arc(lerp(pa.x, pb.x, p.pos), lerp(pa.y, pb.y, p.pos), 2.5, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(lerp(pa.x, pb.x, p.pos), lerp(pa.y, pb.y, p.pos), 2.5 * G, 0, Math.PI * 2); ctx.fill();
             ctx.globalAlpha = 1;
         });
     }
 
     // ===== Draw sensor nodes =====
     function drawNodes(time, hour) {
-        if (state.mode === 'gnn' && state.gnnAnimating) return; // Handled dynamically in drawGNNAnimation
+        if (state.mode === 'gnn' && state.gnnAnimating) return;
+        const G = state.graphScale;
 
         SENSORS.forEach((s, i) => {
             const p = px(s), color = C.srv[s.cluster];
 
             if (state.mode === 'gnn') {
-                const isFocal = s.cluster === FOCAL_CLUSTER; // Server A's own sensors
+                const isFocal = s.cluster === FOCAL_CLUSTER;
 
                 if (isFocal) {
-                    const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 16);
+                    const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 16 * G);
                     g.addColorStop(0, hexA(C.srv[FOCAL_CLUSTER], 0.3)); g.addColorStop(1, hexA(C.srv[FOCAL_CLUSTER], 0));
-                    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, 16, 0, Math.PI * 2); ctx.fill();
-                    ctx.fillStyle = 'white'; ctx.beginPath(); ctx.arc(p.x, p.y, 7, 0, Math.PI * 2); ctx.fill();
-                    ctx.fillStyle = C.srv[FOCAL_CLUSTER]; ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI * 2); ctx.fill();
+                    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, 16 * G, 0, Math.PI * 2); ctx.fill();
+                    ctx.fillStyle = 'white'; ctx.beginPath(); ctx.arc(p.x, p.y, 7 * G, 0, Math.PI * 2); ctx.fill();
+                    ctx.fillStyle = C.srv[FOCAL_CLUSTER]; ctx.beginPath(); ctx.arc(p.x, p.y, 5 * G, 0, Math.PI * 2); ctx.fill();
                 } else {
                     if (state.imputeMethod === 'zero') {
-                        ctx.strokeStyle = '#D1D5DB'; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]);
-                        ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
-                        ctx.fillStyle = '#C4C4C4'; ctx.font = 'bold 8px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                        ctx.strokeStyle = '#D1D5DB'; ctx.lineWidth = 1.5 * G; ctx.setLineDash([3 * G, 3 * G]);
+                        ctx.beginPath(); ctx.arc(p.x, p.y, 6 * G, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+                        ctx.fillStyle = '#C4C4C4'; ctx.font = `bold ${8 * G}px Inter`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
                         ctx.fillText('0', p.x, p.y); ctx.textBaseline = 'alphabetic';
                     } else if (state.imputeMethod === 'neighbor') {
                         const nbrAlpha = ADJ[s.id].some(nb => SENSORS[nb].cluster === FOCAL_CLUSTER) ? 0.7 : 0.3;
-                        ctx.fillStyle = 'white'; ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, Math.PI * 2); ctx.fill();
+                        ctx.fillStyle = 'white'; ctx.beginPath(); ctx.arc(p.x, p.y, 6 * G, 0, Math.PI * 2); ctx.fill();
                         ctx.fillStyle = hexA(color, nbrAlpha);
-                        ctx.beginPath(); ctx.arc(p.x, p.y, 6, -Math.PI / 2, Math.PI / 2); ctx.fill();
-                        ctx.strokeStyle = hexA(color, nbrAlpha); ctx.lineWidth = 1.5;
-                        ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, Math.PI * 2); ctx.stroke();
+                        ctx.beginPath(); ctx.arc(p.x, p.y, 6 * G, -Math.PI / 2, Math.PI / 2); ctx.fill();
+                        ctx.strokeStyle = hexA(color, nbrAlpha); ctx.lineWidth = 1.5 * G;
+                        ctx.beginPath(); ctx.arc(p.x, p.y, 6 * G, 0, Math.PI * 2); ctx.stroke();
                     } else {
                         const pulse = Math.sin(time * 0.003 + i * 0.7) * 0.3 + 0.7;
-                        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 14);
+                        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 14 * G);
                         g.addColorStop(0, hexA(color, 0.25 * pulse)); g.addColorStop(1, hexA(color, 0));
-                        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, 14, 0, Math.PI * 2); ctx.fill();
-                        ctx.fillStyle = 'white'; ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, Math.PI * 2); ctx.fill();
-                        ctx.fillStyle = color; ctx.beginPath(); ctx.arc(p.x, p.y, 4.5, 0, Math.PI * 2); ctx.fill();
+                        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, 14 * G, 0, Math.PI * 2); ctx.fill();
+                        ctx.fillStyle = 'white'; ctx.beginPath(); ctx.arc(p.x, p.y, 6 * G, 0, Math.PI * 2); ctx.fill();
+                        ctx.fillStyle = color; ctx.beginPath(); ctx.arc(p.x, p.y, 4.5 * G, 0, Math.PI * 2); ctx.fill();
                     }
                 }
                 return;
             }
 
-            // All other modes: ALWAYS colored
-            // Identify actual working cluster for sensor coloring
             let activeCluster = s.cluster;
             if (state.mode === 'resilience' && !state.online[s.cluster]) {
                 const nearCi = nearestOnlineCluster(s);
@@ -230,99 +230,92 @@
             }
 
             const nodeColor = (state.mode === 'overview') ? trafficColor(trafficSpeed(hour, i)) : C.srv[activeCluster];
-            const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 14);
+            const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 14 * G);
             g.addColorStop(0, hexA(nodeColor, 0.2)); g.addColorStop(1, hexA(nodeColor, 0));
-            ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, 14, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = 'white'; ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = nodeColor; ctx.beginPath(); ctx.arc(p.x, p.y, 4.5, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, 14 * G, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = 'white'; ctx.beginPath(); ctx.arc(p.x, p.y, 6 * G, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = nodeColor; ctx.beginPath(); ctx.arc(p.x, p.y, 4.5 * G, 0, Math.PI * 2); ctx.fill();
         });
     }
 
     // ===== Draw servers — ALWAYS visible on map =====
     function drawRoundRect(c, x, y, w, h, r) {
-        c.beginPath(); c.moveTo(x+r, y); c.lineTo(x+w-r, y);
-        c.quadraticCurveTo(x+w, y, x+w, y+r); c.lineTo(x+w, y+h-r);
-        c.quadraticCurveTo(x+w, y+h, x+w-r, y+h); c.lineTo(x+r, y+h);
-        c.quadraticCurveTo(x, y+h, x, y+h-r); c.lineTo(x, y+r);
-        c.quadraticCurveTo(x, y, x+r, y); c.closePath();
+        c.beginPath(); c.moveTo(x + r, y); c.lineTo(x + w - r, y);
+        c.quadraticCurveTo(x + w, y, x + w, y + r); c.lineTo(x + w, y + h - r);
+        c.quadraticCurveTo(x + w, y + h, x + w - r, y + h); c.lineTo(x + r, y + h);
+        c.quadraticCurveTo(x, y + h, x, y + h - r); c.lineTo(x, y + r);
+        c.quadraticCurveTo(x, y, x + r, y); c.closePath();
     }
 
     function drawServers(time) {
         ctx.save();
-        // 4 edge servers at cluster centers
+        const G = state.graphScale;
         for (let ci = 0; ci < 4; ci++) {
             const cc = clusterCenter(ci), p = pxLL(cc.lat, cc.lng);
             const isOff = state.mode === 'resilience' && !state.online[ci];
             const col = C.srv[ci];
             const bgCol = isOff ? '#F3F4F6' : '#FFFFFF';
             const strokeCol = isOff ? '#D1D5DB' : col;
-            
-            const w = 28, h = 34, r = 6;
-            const sx = p.x - w/2, sy = p.y - h/2 - 4;
-            
-            ctx.shadowColor = isOff ? 'transparent' : hexA(col, 0.3); 
-            ctx.shadowBlur = 12; ctx.shadowOffsetY = 4;
+
+            const w = 28 * G, h = 34 * G, r = 6 * G;
+            const sx = p.x - w / 2, sy = p.y - h / 2 - 4 * G;
+
+            ctx.shadowColor = isOff ? 'transparent' : hexA(col, 0.3);
+            ctx.shadowBlur = 12 * G; ctx.shadowOffsetY = 4 * G;
             drawRoundRect(ctx, sx, sy, w, h, r);
             ctx.fillStyle = bgCol; ctx.fill();
-            
+
             ctx.shadowColor = 'transparent';
-            ctx.strokeStyle = strokeCol; ctx.lineWidth = isOff ? 1.5 : 2; ctx.stroke();
+            ctx.strokeStyle = strokeCol; ctx.lineWidth = isOff ? 1.5 * G : 2 * G; ctx.stroke();
 
-            // Server rack blades
             ctx.fillStyle = isOff ? '#E5E7EB' : hexA(col, 0.15);
-            drawRoundRect(ctx, sx + 5, sy + 5, w - 10, 4, 1.5); ctx.fill();
-            drawRoundRect(ctx, sx + 5, sy + 13, w - 10, 4, 1.5); ctx.fill();
-            drawRoundRect(ctx, sx + 5, sy + 21, w - 10, 4, 1.5); ctx.fill();
+            drawRoundRect(ctx, sx + 5 * G, sy + 5 * G, w - 10 * G, 4 * G, 1.5 * G); ctx.fill();
+            drawRoundRect(ctx, sx + 5 * G, sy + 13 * G, w - 10 * G, 4 * G, 1.5 * G); ctx.fill();
+            drawRoundRect(ctx, sx + 5 * G, sy + 21 * G, w - 10 * G, 4 * G, 1.5 * G); ctx.fill();
 
-            // Status LED
             if (!isOff) {
                 const ledCol = (Math.sin(time * 0.005 + ci) > 0) ? '#10B981' : '#34D399';
                 ctx.fillStyle = ledCol;
-                ctx.beginPath(); ctx.arc(sx + w - 7, sy + 7, 1.5, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(sx + w - 7 * G, sy + 7 * G, 1.5 * G, 0, Math.PI * 2); ctx.fill();
             } else {
                 ctx.fillStyle = '#EF4444';
-                ctx.beginPath(); ctx.arc(sx + w - 7, sy + 7, 1.5, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(sx + w - 7 * G, sy + 7 * G, 1.5 * G, 0, Math.PI * 2); ctx.fill();
             }
-            
-            // Server Label Below
-            ctx.fillStyle = isOff ? '#9CA3AF' : col; 
-            ctx.font = 'bold 11px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-            ctx.fillText(C.srvName[ci], p.x, sy + h + 6);
-            
-            // Offline X Overlay
+
+            ctx.fillStyle = isOff ? '#9CA3AF' : col;
+            ctx.font = `bold ${11 * G}px Inter`; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+            ctx.fillText(C.srvName[ci], p.x, sy + h + 6 * G);
+
             if (isOff) {
-                ctx.strokeStyle = '#EF4444'; ctx.lineWidth = 2.5;
-                ctx.beginPath(); ctx.moveTo(p.x - 8, p.y - 8); ctx.lineTo(p.x + 8, p.y + 8);
-                ctx.moveTo(p.x + 8, p.y - 8); ctx.lineTo(p.x - 8, p.y + 8); ctx.stroke();
+                ctx.strokeStyle = '#EF4444'; ctx.lineWidth = 2.5 * G;
+                ctx.beginPath(); ctx.moveTo(p.x - 8 * G, p.y - 8 * G); ctx.lineTo(p.x + 8 * G, p.y + 8 * G);
+                ctx.moveTo(p.x + 8 * G, p.y - 8 * G); ctx.lineTo(p.x - 8 * G, p.y + 8 * G); ctx.stroke();
             }
         }
 
-        // Central Server - Represents Cloud / Hub
         const cp = pxLL(CENTRAL_POS.lat, CENTRAL_POS.lng);
-        const cw = 44, ch = 32, cr = 8;
-        const cx = cp.x - cw/2, cy = cp.y - ch/2 - 4;
-        
-        ctx.shadowColor = hexA(C.central, 0.4); ctx.shadowBlur = 15; ctx.shadowOffsetY = 5;
+        const cw = 44 * G, ch = 32 * G, cr = 8 * G;
+        const cx = cp.x - cw / 2, cy = cp.y - ch / 2 - 4 * G;
+
+        ctx.shadowColor = hexA(C.central, 0.4); ctx.shadowBlur = 15 * G; ctx.shadowOffsetY = 5 * G;
         drawRoundRect(ctx, cx, cy, cw, ch, cr);
         ctx.fillStyle = '#FFFFFF'; ctx.fill();
         ctx.shadowColor = 'transparent';
-        
-        ctx.strokeStyle = C.central; ctx.lineWidth = 2.5; ctx.stroke();
-        
-        // Data center columns
+
+        ctx.strokeStyle = C.central; ctx.lineWidth = 2.5 * G; ctx.stroke();
+
         for (let i = 0; i < 3; i++) {
-            const px = cx + 7 + i*11;
-            drawRoundRect(ctx, px, cy + 6, 8, ch - 12, 2);
+            const px = cx + 7 * G + i * 11 * G;
+            drawRoundRect(ctx, px, cy + 6 * G, 8 * G, ch - 12 * G, 2 * G);
             ctx.fillStyle = hexA(C.central, 0.1); ctx.fill();
-            // Blinking lights
-            ctx.fillStyle = (Math.sin(time*0.008 + i) > 0.5) ? C.central : hexA(C.central, 0.3);
-            ctx.beginPath(); ctx.arc(px + 4, cy + 10, 1.5, 0, Math.PI*2); ctx.fill();
-            ctx.beginPath(); ctx.arc(px + 4, cy + 15, 1.2, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = (Math.sin(time * 0.008 + i) > 0.5) ? C.central : hexA(C.central, 0.3);
+            ctx.beginPath(); ctx.arc(px + 4 * G, cy + 10 * G, 1.5 * G, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(px + 4 * G, cy + 15 * G, 1.2 * G, 0, Math.PI * 2); ctx.fill();
         }
-        
-        ctx.fillStyle = C.central; ctx.font = 'bold 12px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-        ctx.fillText('중앙 서버', cp.x, cy + ch + 8);
-        
+
+        ctx.fillStyle = C.central; ctx.font = `bold ${12 * G}px Inter`; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        ctx.fillText('중앙 서버', cp.x, cy + ch + 8 * G);
+
         ctx.restore();
     }
 
@@ -346,7 +339,7 @@
                 // Sensor -> Edge Server (Data collection)
                 SENSORS.filter(s => s.cluster === ci).forEach((s, idx) => {
                     const sp_sensor = px(s);
-                    const p = prog * 1.5 - (idx % 4) * 0.12; 
+                    const p = prog * 1.5 - (idx % 4) * 0.12;
                     if (p >= 0 && p <= 1.1) {
                         // Draw small data particle
                         const s_x = lerp(sp_sensor.x, sp.x, clamp(p, 0, 1)), s_y = lerp(sp_sensor.y, sp.y, clamp(p, 0, 1));
@@ -360,10 +353,10 @@
                 const g = ctx.createRadialGradient(sp.x, sp.y, 0, sp.x, sp.y, 35);
                 g.addColorStop(0, hexA(C.srv[ci], 0.20 * pulse)); g.addColorStop(1, hexA(C.srv[ci], 0));
                 ctx.fillStyle = g; ctx.beginPath(); ctx.arc(sp.x, sp.y, 35, 0, Math.PI * 2); ctx.fill();
-                
+
                 // Draw spinning GNN network indicator (Shifted up to avoid overlapping UI)
                 const p2 = (time * 0.003) % (Math.PI * 2);
-                ctx.fillStyle = C.srv[ci]; ctx.font = 'bold 9.5px Inter'; ctx.textAlign = 'center'; 
+                ctx.fillStyle = C.srv[ci]; ctx.font = 'bold 9.5px Inter'; ctx.textAlign = 'center';
                 ctx.fillText('GNN', sp.x, sp.y - 34);
                 const gx = sp.x, gy = sp.y - 45;
                 const r = 9;
@@ -375,7 +368,7 @@
                     ctx.moveTo(gx + Math.cos(a1) * r, gy + Math.sin(a1) * r);
                     ctx.lineTo(gx + Math.cos(a2) * r, gy + Math.sin(a2) * r);
                     ctx.stroke();
-                    ctx.beginPath(); ctx.arc(gx + Math.cos(a1) * r, gy + Math.sin(a1) * r, 2.5, 0, Math.PI*2); ctx.fill();
+                    ctx.beginPath(); ctx.arc(gx + Math.cos(a1) * r, gy + Math.sin(a1) * r, 2.5, 0, Math.PI * 2); ctx.fill();
                 }
             } else if (step === 2) {
                 // ◆ Model parameter packet → central server (ONCE)
@@ -395,7 +388,7 @@
                 const r = 24 * (1 - p);
                 if (p < 1) {
                     drawDiamond({ x: cp.x + Math.cos(a - 0.1) * r, y: cp.y + Math.sin(a - 0.1) * r },
-                                { x: cp.x + Math.cos(a) * r, y: cp.y + Math.sin(a) * r }, 1, col);
+                        { x: cp.x + Math.cos(a) * r, y: cp.y + Math.sin(a) * r }, 1, col);
                 } else if (p === 1 && ci === 0) {
                     const pulse = Math.sin(time * 0.01) * 0.5 + 0.5;
                     const g = ctx.createRadialGradient(cp.x, cp.y, 0, cp.x, cp.y, 40);
@@ -415,7 +408,7 @@
             const tp = clamp(prog - t * 0.06, 0, 1);
             const tx = lerp(from.x, to.x, tp), ty = lerp(from.y, to.y, tp);
             ctx.fillStyle = hexA(color, 0.18 - t * 0.04);
-            ctx.beginPath(); ctx.moveTo(tx, ty - (s-t)); ctx.lineTo(tx + (s-t), ty); ctx.lineTo(tx, ty + (s-t)); ctx.lineTo(tx - (s-t), ty); ctx.closePath(); ctx.fill();
+            ctx.beginPath(); ctx.moveTo(tx, ty - (s - t)); ctx.lineTo(tx + (s - t), ty); ctx.lineTo(tx, ty + (s - t)); ctx.lineTo(tx - (s - t), ty); ctx.closePath(); ctx.fill();
         }
         // Diamond
         ctx.fillStyle = color;
@@ -442,7 +435,7 @@
             const sa = SENSORS[a], sb = SENSORS[b];
             const aIsFocal = sa.cluster === FOCAL_CLUSTER;
             const bIsFocal = sb.cluster === FOCAL_CLUSTER;
-            if (aIsFocal === bIsFocal) return; 
+            if (aIsFocal === bIsFocal) return;
             const focalNode = aIsFocal ? sa : sb;
             const unknownNode = aIsFocal ? sb : sa;
             const fp = px(focalNode), up = px(unknownNode);
@@ -465,11 +458,11 @@
             for (const v of ADJ[u]) { if (bfsDist[v] < 0) { bfsDist[v] = bfsDist[u] + 1; bfsQ.push(v); } }
         }
         const maxDist = Math.max(...bfsDist.filter(d => d >= 0));
-        const wavePeriod = 3000; 
-        const wavePhase = (time % wavePeriod) / wavePeriod; 
+        const wavePeriod = 3000;
+        const wavePhase = (time % wavePeriod) / wavePeriod;
         for (let d = 1; d <= maxDist; d++) {
             const ringPhase = d / maxDist;
-            const t = (wavePhase - ringPhase + 1) % 1; 
+            const t = (wavePhase - ringPhase + 1) % 1;
             const alpha = t < 0.3 ? t / 0.3 * 0.4 : (1 - (t - 0.3) / 0.7) * 0.15;
             if (alpha < 0.01) continue;
             EDGES.forEach(([a, b]) => {
@@ -499,7 +492,7 @@
     function drawGNNAnimation(time) {
         const m = state.imputeMethod;
         const animEnd = 12000;
-        const cycle = 15000; // 3초 대기 후 부드럽게 종료되도록 사이클 연장
+        const cycle = 15000;
         const elapsed = time - state.gnnAnimStart;
         if (elapsed > cycle) {
             state.gnnAnimating = false;
@@ -508,26 +501,34 @@
         }
         const t = Math.min(elapsed / animEnd, 1.0);
 
+        // Read UI scale
+        const S = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ui-scale')) || 1;
+
         // HUD dimensions and location
         const panel = document.getElementById('math-panel');
-        let hudX = 176, hudY = 320; 
+        let hudX = 176 * S, hudY = 320 * S;
         if (panel) {
             const rect = panel.getBoundingClientRect();
             hudX = rect.left + rect.width / 2;
-            hudY = rect.top + 210; 
+            // Center animation vertically within visible panel area
+            const visibleTop = Math.max(rect.top, 0);
+            const visibleBottom = Math.min(rect.bottom, window.innerHeight);
+            hudY = (visibleTop + visibleBottom) / 2;
         }
-        
+
         ctx.save();
-        ctx.setTransform(1,0,0,1,0,0); // reset scale to avoid messing up device ratio mapping since px() returns window coords
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
         const dpr = devicePixelRatio || 1;
         ctx.scale(dpr, dpr);
 
-        const matA_X = hudX - 85; // Adjusted for better spacing
-        const matX_X = hudX - 20;
-        const nnBox_X = hudX + 50;
-        const h_X = nnBox_X + 65; // Position of H vector
-        const matY_start = hudY - 70; // 24 nodes * 6px = 144px height entirely
-        
+        const matA_X = hudX - 85 * S;
+        const matX_X = hudX - 20 * S;
+        const nnBox_X = hudX + 50 * S;
+        const h_X = nnBox_X + 65 * S;
+        const matY_start = hudY - 70 * S;
+        const nodeSpacing = 6 * S;
+        const matHeight = 24 * nodeSpacing;
+
         const p_flyOut = clamp((t - 0.05) / 0.15, 0, 1);
         const p_eqForm = clamp((t - 0.25) / 0.15, 0, 1);
         const p_insert = clamp((t - 0.45) / 0.15, 0, 1);
@@ -554,18 +555,18 @@
 
         // 1. Calculate positions for each node
         const positions = SENSORS.map((s, i) => {
-            const origin = px(s), targetX = matX_X, targetY = matY_start + i * 6;
-            
+            const origin = px(s), targetX = matX_X, targetY = matY_start + i * nodeSpacing;
+
             let cX = lerp(origin.x, targetX, e_flyOut);
             cX = lerp(cX, nnBox_X, e_insert);
-            
+
             const e_shoot_curve = 1 - Math.pow(1 - p_shoot, 4);
             cX = lerp(cX, h_X, e_shoot_curve);
             cX = lerp(cX, origin.x, e_flyBack);
 
             let cY = lerp(origin.y, targetY, e_flyOut);
             cY = lerp(cY, origin.y, e_flyBack);
-            
+
             return { x: cX, y: cY };
         });
 
@@ -582,35 +583,37 @@
         // 3. Draw Matrices (Forming equation)
         const matOp = p_eqForm * (1 - p_insert);
         if (matOp > 0) {
-            const aOff = lerp(0, nnBox_X - matA_X - 5, e_insert);
+            const aOff = lerp(0, nnBox_X - matA_X - 5 * S, e_insert);
             const aX = matA_X + aOff;
             ctx.globalAlpha = matOp;
             // Bracket A
             ctx.strokeStyle = '#6B7280'; ctx.lineWidth = 1.5;
-            ctx.beginPath(); ctx.moveTo(aX - 25, matY_start - 3); ctx.lineTo(aX - 28, matY_start - 3); ctx.lineTo(aX - 28, matY_start + 145); ctx.lineTo(aX - 25, matY_start + 145); ctx.stroke();
-            ctx.beginPath(); ctx.moveTo(aX + 25, matY_start - 3); ctx.lineTo(aX + 28, matY_start - 3); ctx.lineTo(aX + 28, matY_start + 145); ctx.lineTo(aX + 25, matY_start + 145); ctx.stroke();
-            ctx.fillStyle = '#6B7280'; ctx.font = 'bold 12px Inter'; ctx.textAlign = 'center'; ctx.fillText('Ã', aX, matY_start - 12);
-            ctx.font = 'bold 15px Inter'; ctx.fillText('×', aX + 37, hudY);
-            
+            ctx.beginPath(); ctx.moveTo(aX - 25 * S, matY_start - 3 * S); ctx.lineTo(aX - 28 * S, matY_start - 3 * S); ctx.lineTo(aX - 28 * S, matY_start + matHeight + 1 * S); ctx.lineTo(aX - 25 * S, matY_start + matHeight + 1 * S); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(aX + 25 * S, matY_start - 3 * S); ctx.lineTo(aX + 28 * S, matY_start - 3 * S); ctx.lineTo(aX + 28 * S, matY_start + matHeight + 1 * S); ctx.lineTo(aX + 25 * S, matY_start + matHeight + 1 * S); ctx.stroke();
+            ctx.fillStyle = '#6B7280'; ctx.font = `bold ${12 * S}px Inter`; ctx.textAlign = 'center'; ctx.fillText('Ã', aX, matY_start - 12 * S);
+            ctx.font = `bold ${15 * S}px Inter`; ctx.fillText('×', aX + 37 * S, hudY);
+
             // Matrix A dots
-            for (let r = 0; r < 24; r++) { for (let c = 0; c < 24; c++) {
-                const isEdge = ADJ[r].includes(c) || r === c;
-                ctx.fillStyle = isEdge ? '#374151' : '#E5E7EB';
-                ctx.fillRect((aX - 23 + c * 2)|0, (matY_start + r * 6)|0, 1.5, 1.5);
-            }}
+            for (let r = 0; r < 24; r++) {
+                for (let c = 0; c < 24; c++) {
+                    const isEdge = ADJ[r].includes(c) || r === c;
+                    ctx.fillStyle = isEdge ? '#374151' : '#E5E7EB';
+                    ctx.fillRect((aX - 23 * S + c * 2 * S) | 0, (matY_start + r * nodeSpacing) | 0, 1.5 * S, 1.5 * S);
+                }
+            }
             ctx.globalAlpha = 1;
         }
 
         // Bracket for Matrix X
         const xOp = p_flyOut * (1 - p_insert);
         if (xOp > 0) {
-            const xOff = lerp(0, nnBox_X - matX_X - 5, e_insert);
+            const xOff = lerp(0, nnBox_X - matX_X - 5 * S, e_insert);
             const xx = matX_X + xOff;
             ctx.globalAlpha = xOp;
             ctx.strokeStyle = '#6B7280'; ctx.lineWidth = 1.5;
-            ctx.beginPath(); ctx.moveTo(xx - 8, matY_start - 3); ctx.lineTo(xx - 11, matY_start - 3); ctx.lineTo(xx - 11, matY_start + 145); ctx.lineTo(xx - 8, matY_start + 145); ctx.stroke();
-            ctx.beginPath(); ctx.moveTo(xx + 8, matY_start - 3); ctx.lineTo(xx + 11, matY_start - 3); ctx.lineTo(xx + 11, matY_start + 145); ctx.lineTo(xx + 8, matY_start + 145); ctx.stroke();
-            ctx.fillStyle = '#6B7280'; ctx.font = 'bold 12px Inter'; ctx.textAlign = 'center'; ctx.fillText('X', xx, matY_start - 12);
+            ctx.beginPath(); ctx.moveTo(xx - 8 * S, matY_start - 3 * S); ctx.lineTo(xx - 11 * S, matY_start - 3 * S); ctx.lineTo(xx - 11 * S, matY_start + matHeight + 1 * S); ctx.lineTo(xx - 8 * S, matY_start + matHeight + 1 * S); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(xx + 8 * S, matY_start - 3 * S); ctx.lineTo(xx + 11 * S, matY_start - 3 * S); ctx.lineTo(xx + 11 * S, matY_start + matHeight + 1 * S); ctx.lineTo(xx + 8 * S, matY_start + matHeight + 1 * S); ctx.stroke();
+            ctx.fillStyle = '#6B7280'; ctx.font = `bold ${12 * S}px Inter`; ctx.textAlign = 'center'; ctx.fillText('X', xx, matY_start - 12 * S);
             ctx.globalAlpha = 1;
         }
 
@@ -618,15 +621,15 @@
         ctx.globalAlpha = p_insert * (1 - e_flyBack);
         if (ctx.globalAlpha > 0) {
             ctx.fillStyle = '#1E293B';
-            drawRoundRect(ctx, nnBox_X - 35, hudY - 70, 70, 140, 8); ctx.fill();
-            ctx.fillStyle = 'white'; ctx.font = 'bold 14px Inter'; ctx.textAlign = 'center'; ctx.textBaseline='middle';
-            ctx.fillText('GNN', nnBox_X, hudY - 14);
-            ctx.fillText('Layer', nnBox_X, hudY + 14);
+            drawRoundRect(ctx, nnBox_X - 35 * S, hudY - 70 * S, 70 * S, 140 * S, 8 * S); ctx.fill();
+            ctx.fillStyle = 'white'; ctx.font = `bold ${14 * S}px Inter`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText('GNN', nnBox_X, hudY - 14 * S);
+            ctx.fillText('Layer', nnBox_X, hudY + 14 * S);
 
             if (p_compute > 0 && p_compute < 1) {
                 const pulse = Math.sin(p_compute * Math.PI * 6) * 0.5 + 0.5;
                 ctx.strokeStyle = hexA('#3B82F6', pulse); ctx.lineWidth = 4;
-                drawRoundRect(ctx, nnBox_X - 37, hudY - 72, 74, 144, 10); ctx.stroke();
+                drawRoundRect(ctx, nnBox_X - 37 * S, hudY - 72 * S, 74 * S, 144 * S, 10 * S); ctx.stroke();
             }
         }
         ctx.globalAlpha = 1;
@@ -636,9 +639,9 @@
             const hX = h_X;
             ctx.globalAlpha = p_shoot * (1 - p_flyBack);
             ctx.strokeStyle = '#10B981'; ctx.lineWidth = 1.5;
-            ctx.beginPath(); ctx.moveTo(hX - 8, matY_start - 3); ctx.lineTo(hX - 11, matY_start - 3); ctx.lineTo(hX - 11, matY_start + 145); ctx.lineTo(hX - 8, matY_start + 145); ctx.stroke();
-            ctx.beginPath(); ctx.moveTo(hX + 8, matY_start - 3); ctx.lineTo(hX + 11, matY_start - 3); ctx.lineTo(hX + 11, matY_start + 145); ctx.lineTo(hX + 8, matY_start + 145); ctx.stroke();
-            ctx.fillStyle = '#10B981'; ctx.font = 'bold 12px Inter'; ctx.textAlign = 'center'; ctx.fillText('H', hX, matY_start - 12);
+            ctx.beginPath(); ctx.moveTo(hX - 8 * S, matY_start - 3 * S); ctx.lineTo(hX - 11 * S, matY_start - 3 * S); ctx.lineTo(hX - 11 * S, matY_start + matHeight + 1 * S); ctx.lineTo(hX - 8 * S, matY_start + matHeight + 1 * S); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(hX + 8 * S, matY_start - 3 * S); ctx.lineTo(hX + 11 * S, matY_start - 3 * S); ctx.lineTo(hX + 11 * S, matY_start + matHeight + 1 * S); ctx.lineTo(hX + 8 * S, matY_start + matHeight + 1 * S); ctx.stroke();
+            ctx.fillStyle = '#10B981'; ctx.font = `bold ${12 * S}px Inter`; ctx.textAlign = 'center'; ctx.fillText('H', hX, matY_start - 12 * S);
             ctx.globalAlpha = 1;
         }
 
@@ -647,7 +650,7 @@
             let nodeAlpha = 1;
             if (p_insert > 0 && p_shoot === 0) nodeAlpha = 1 - e_insert;
             let col = nColors[i];
-            
+
             if (p_shoot > 0) {
                 nodeAlpha = Math.min(1, p_shoot * 2); // Fade in to avoid harsh overlap with box text
                 col = p_flyBack > 0.95 ? C.srv[SENSORS[i].cluster] : '#10B981';
@@ -667,25 +670,25 @@
             if (p_shoot === 0 && p_flyOut === 0 && m === 'zero' && SENSORS[i].cluster !== FOCAL_CLUSTER) {
                 ctx.strokeStyle = '#D1D5DB'; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]);
                 ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
-                ctx.fillStyle = '#C4C4C4'; ctx.font = 'bold 8px Inter'; ctx.textAlign = 'center'; ctx.textBaseline='middle';
-                ctx.fillText('0', p.x, p.y); ctx.textBaseline='alphabetic';
+                ctx.fillStyle = '#C4C4C4'; ctx.font = 'bold 8px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText('0', p.x, p.y); ctx.textBaseline = 'alphabetic';
             } else if (p_shoot === 0 && p_flyOut === 0 && m === 'neighbor' && SENSORS[i].cluster !== FOCAL_CLUSTER) {
                 const isNbr = ADJ[i].some(nb => SENSORS[nb].cluster === FOCAL_CLUSTER);
                 ctx.fillStyle = 'white'; ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, Math.PI * 2); ctx.fill();
-                ctx.fillStyle = hexA(col, isNbr ? 0.7 : 0.3); ctx.beginPath(); ctx.arc(p.x, p.y, 6, -Math.PI/2, Math.PI/2); ctx.fill();
+                ctx.fillStyle = hexA(col, isNbr ? 0.7 : 0.3); ctx.beginPath(); ctx.arc(p.x, p.y, 6, -Math.PI / 2, Math.PI / 2); ctx.fill();
                 ctx.strokeStyle = hexA(col, isNbr ? 0.7 : 0.3); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, Math.PI * 2); ctx.stroke();
             } else {
                 ctx.beginPath(); ctx.arc(p.x, p.y, 7 * finalScale, 0, Math.PI * 2); ctx.fill();
-                if (finalScale > 0.3) { ctx.fillStyle='white'; ctx.beginPath(); ctx.arc(p.x, p.y, 4 * finalScale, 0, Math.PI*2); ctx.fill(); }
+                if (finalScale > 0.3) { ctx.fillStyle = 'white'; ctx.beginPath(); ctx.arc(p.x, p.y, 4 * finalScale, 0, Math.PI * 2); ctx.fill(); }
             }
         });
-        
+
         // 지도가 다시 완전히 그려진 후 Node를 서서히 원래 상태로 페이드 아웃
         let nodeFadeToMapAlpha = 0;
         if (elapsed > cycle - 1500) {
             nodeFadeToMapAlpha = (elapsed - (cycle - 1500)) / 1500;
         }
-        
+
         // 7. Splash Effect & Predicted Traffic Lines
         let sAlpha = 0;
         if (p_flyBack > 0.95) {
@@ -693,7 +696,7 @@
             SENSORS.forEach(s => {
                 const p = px(s);
                 ctx.strokeStyle = hexA('#10B981', sAlpha); ctx.lineWidth = 2.5;
-                ctx.beginPath(); ctx.arc(p.x, p.y, 14 + (1-sAlpha)*16, 0, Math.PI*2); ctx.stroke();
+                ctx.beginPath(); ctx.arc(p.x, p.y, 14 + (1 - sAlpha) * 16, 0, Math.PI * 2); ctx.stroke();
             });
         }
 
@@ -716,7 +719,7 @@
                 const edgeC = trafficColor(trafficSpeed(simHour, ei));
                 ctx.strokeStyle = hexA(edgeC, outTrafficAlpha * 0.85);
                 ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke();
-                
+
                 // Animated traffic glow particles on the prediction edges
                 if (outTrafficAlpha > 0.2) {
                     const pg = ((time * 0.0006) + ei * 0.1) % 1;
@@ -776,7 +779,7 @@
 
         c.strokeStyle = '#F3F4F6'; c.lineWidth = 1;
         [0.25, 0.5, 0.75].forEach(r => { c.beginPath(); c.moveTo(0, ch * r); c.lineTo(cw, ch * r); c.stroke(); });
-        
+
         const points = [];
         const err_scale = { zero: 28, neighbor: 12, propagation: 7 }[m] || 7;
         let col = { zero: '#9CA3AF', neighbor: '#F59E0B', propagation: '#10B981' }[m] || '#10B981';
@@ -784,16 +787,16 @@
 
         // Window: T - 6.5 hours to T + 1.5 hours
         for (let i = 0; i <= 60; i++) {
-            const h = hour - 6.5 + (i / 60) * 8.0; 
-            const hWrapped = (h + 240) % 24; 
+            const h = hour - 6.5 + (i / 60) * 8.0;
+            const hWrapped = (h + 240) % 24;
             const actual = trafficSpeed(hWrapped, 42);
-            
+
             // Generate smooth realistic noise per method (lowered frequency to prevent aliasing wiggle)
             const noise = (Math.sin(hWrapped * 4.3 + m.length) * Math.cos(hWrapped * 6.8)) * err_scale;
-            let bias = { zero: 14, neighbor: 4, propagation: 0.5 }[m]; 
+            let bias = { zero: 14, neighbor: 4, propagation: 0.5 }[m];
             // Zero-fill is terribly biased during free flow
             if (m === 'zero') bias += (actual - 20) * 0.45;
-            
+
             let predicted = clamp(actual + noise - bias, 5, 65);
             points.push({ actual, predicted });
         }
@@ -804,25 +807,25 @@
         c.lineTo(cw, ch); c.lineTo(0, ch); c.closePath();
         const fg = c.createLinearGradient(0, 0, 0, ch); fg.addColorStop(0, 'rgba(59,130,246,0.15)'); fg.addColorStop(1, 'rgba(59,130,246,0)');
         c.fillStyle = fg; c.fill();
-        
+
         // Actual Line
         c.strokeStyle = '#3B82F6'; c.lineWidth = 2.5; c.beginPath();
         points.forEach((p, i) => { const x = (i / 60) * cw, y = ch - (p.actual / 70) * ch; i === 0 ? c.moveTo(x, y) : c.lineTo(x, y); }); c.stroke();
-        
+
         // Predicted Line
         c.strokeStyle = col; c.lineWidth = 2; c.beginPath();
         if (m === 'zero') { c.setLineDash([4, 4]); } else if (m === 'neighbor') { c.setLineDash([2, 3]); } else { c.setLineDash([]); }
-        points.forEach((p, i) => { const x = (i / 60) * cw, y = ch - (p.predicted / 70) * ch; i === 0 ? c.moveTo(x, y) : c.lineTo(x, y); }); 
+        points.forEach((p, i) => { const x = (i / 60) * cw, y = ch - (p.predicted / 70) * ch; i === 0 ? c.moveTo(x, y) : c.lineTo(x, y); });
         c.stroke(); c.setLineDash([]);
-        
+
         // Dynamic Playhead (Current time is at i=48.75 ~ x = cw * 6.5/8.0)
-        const playX = cw * (6.5 / 8.0); 
+        const playX = cw * (6.5 / 8.0);
         c.strokeStyle = '#EF4444'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(playX, 0); c.lineTo(playX, ch); c.stroke();
-        
+
         // Find index that matches playhead
         const pIdx = Math.floor(60 * (6.5 / 8.0));
-        c.fillStyle = '#EF4444'; c.beginPath(); c.arc(playX, ch - (points[pIdx].actual / 70) * ch, 3.5, 0, Math.PI*2); c.fill();
-        
+        c.fillStyle = '#EF4444'; c.beginPath(); c.arc(playX, ch - (points[pIdx].actual / 70) * ch, 3.5, 0, Math.PI * 2); c.fill();
+
         c.fillStyle = '#9CA3AF'; c.font = '9px Inter'; c.textAlign = 'right';
         c.fillText('현재', playX - 4, 10);
     }
@@ -900,7 +903,7 @@
             <div class="step-dot-wrap" data-s="3"><div class="step-dot">4</div><span class="step-name">통합</span></div><div class="step-line"></div>
             <div class="step-dot-wrap" data-s="4"><div class="step-dot">5</div><span class="step-name">배포</span></div>
         </div>
-        <div id="fl-step-desc" class="desc" style="min-height:45px">${FL_DESCS[0]}</div>
+        <div id="fl-step-desc" class="desc" style="min-height:calc(45px * var(--ui-scale))">${FL_DESCS[0]}</div>
         <div class="section-divider"></div>
         <div class="controls-row">
             <button class="ctrl-btn" id="fl-play" title="재생">▶</button>
@@ -927,33 +930,33 @@
             &nbsp;|&nbsp;
             <span style="color:#9CA3AF">○</span> 다른 서버 센서 (결측 → 보간)
         </div>
-        <h3 style="margin-top:10px">보간 방식 선택</h3>
+        <h3 style="margin-top:calc(10px * var(--ui-scale))">보간 방식 선택</h3>
         <div class="impute-group">
-            <button class="impute-btn ${m==='zero'?'active':''}" data-imp="zero">Zero-fill</button>
-            <button class="impute-btn ${m==='neighbor'?'active':''}" data-imp="neighbor">이웃 평균</button>
-            <button class="impute-btn ${m==='propagation'?'active':''}" data-imp="propagation">특징 전파</button>
+            <button class="impute-btn ${m === 'zero' ? 'active' : ''}" data-imp="zero">Zero-fill</button>
+            <button class="impute-btn ${m === 'neighbor' ? 'active' : ''}" data-imp="neighbor">이웃 평균</button>
+            <button class="impute-btn ${m === 'propagation' ? 'active' : ''}" data-imp="propagation">특징 전파</button>
         </div>
         <p class="desc" id="impute-desc">${IMPUTE_DESCS[m]}</p>
         <div class="section-divider"></div>
         <h3>학습 손실 비교 (Loss)</h3>
         <div class="chart-wrap"><canvas id="loss-canvas" height="100"></canvas></div>
         <div class="curve-legend">
-            <div class="curve-legend-item ${m==='zero'?'active':''}"><div class="curve-legend-line" style="background:#9CA3AF"></div>Zero-fill</div>
-            <div class="curve-legend-item ${m==='neighbor'?'active':''}"><div class="curve-legend-line" style="background:#F59E0B"></div>이웃 평균</div>
-            <div class="curve-legend-item ${m==='propagation'?'active':''}"><div class="curve-legend-line" style="background:#10B981"></div>특징 전파</div>
+            <div class="curve-legend-item ${m === 'zero' ? 'active' : ''}"><div class="curve-legend-line" style="background:#9CA3AF"></div>Zero-fill</div>
+            <div class="curve-legend-item ${m === 'neighbor' ? 'active' : ''}"><div class="curve-legend-line" style="background:#F59E0B"></div>이웃 평균</div>
+            <div class="curve-legend-item ${m === 'propagation' ? 'active' : ''}"><div class="curve-legend-line" style="background:#10B981"></div>특징 전파</div>
         </div>
         <div class="section-divider"></div>
         <h3>방식별 성능 비교</h3>
         <table class="cmp-table">
             <tr><th>방식</th><th>최종 Loss</th><th>MAAPE</th><th>수렴</th></tr>
-            <tr class="${m==='zero'?'active-row':''}"><td class="method-name">Zero-fill</td><td>0.34</td><td>12.8%</td><td><span class="speed-bar"><span class="speed-block on"></span><span class="speed-block off"></span><span class="speed-block off"></span></span></td></tr>
-            <tr class="${m==='neighbor'?'active-row':''}"><td class="method-name">이웃 평균</td><td>0.19</td><td>8.3%</td><td><span class="speed-bar"><span class="speed-block on"></span><span class="speed-block on"></span><span class="speed-block off"></span></span></td></tr>
-            <tr class="${m==='propagation'?'active-row':''}"><td class="method-name">특징 전파</td><td>0.07</td><td>5.2%</td><td><span class="speed-bar"><span class="speed-block on"></span><span class="speed-block on"></span><span class="speed-block on"></span></span></td></tr>
+            <tr class="${m === 'zero' ? 'active-row' : ''}"><td class="method-name">Zero-fill</td><td>0.34</td><td>12.8%</td><td><span class="speed-bar"><span class="speed-block on"></span><span class="speed-block off"></span><span class="speed-block off"></span></span></td></tr>
+            <tr class="${m === 'neighbor' ? 'active-row' : ''}"><td class="method-name">이웃 평균</td><td>0.19</td><td>8.3%</td><td><span class="speed-bar"><span class="speed-block on"></span><span class="speed-block on"></span><span class="speed-block off"></span></span></td></tr>
+            <tr class="${m === 'propagation' ? 'active-row' : ''}"><td class="method-name">특징 전파</td><td>0.07</td><td>5.2%</td><td><span class="speed-bar"><span class="speed-block on"></span><span class="speed-block on"></span><span class="speed-block on"></span></span></td></tr>
         </table>
         <div class="section-divider"></div>
         <h3>교통량 추이 (실시간 Scrolling)</h3>
         <div class="chart-wrap"><canvas id="traffic-canvas" height="90"></canvas>
-            <div class="curve-legend"><div class="curve-legend-item"><div class="curve-legend-line" style="background:#3B82F6"></div>실제흐름</div><div class="curve-legend-item"><div class="curve-legend-line" style="background:${m==='zero'?'#9CA3AF':m==='neighbor'?'#F59E0B':'#10B981'}"></div>예측 (${mLabel})</div></div>
+            <div class="curve-legend"><div class="curve-legend-item"><div class="curve-legend-line" style="background:#3B82F6"></div>실제흐름</div><div class="curve-legend-item"><div class="curve-legend-line" style="background:${m === 'zero' ? '#9CA3AF' : m === 'neighbor' ? '#F59E0B' : '#10B981'}"></div>예측 (${mLabel})</div></div>
         </div>
         <div class="hint">🖱️ 지도 위의 센서를 클릭하면 신호 전파를 볼 수 있습니다</div>`;
     }
@@ -974,22 +977,22 @@
         <p class="desc">장애 발생 시 인접 서버로 데이터가 우회 전송됩니다. 특정 중앙 서버로 데이터가 모이면서 GNN 연산에 필요한 정보(결측치)가 채워져 <strong>중앙 집중 방식의 학습과 예측 일치도는 역으로 상승</strong>합니다. 하지만 중앙 집중된 병목 트래픽으로 <strong>네트워크 지연(Latency)</strong>은 기하급수적으로 악화됩니다.</p>
         <div class="section-divider"></div>
         <h3>엣지 서버 제어판</h3>
-        <div class="server-grid">${[0,1,2,3].map(i => `<button class="srv-btn ${state.online[i]?'online':'offline'}" data-server="${i}"><span class="srv-icon">🖥️</span><span class="srv-name">${C.srvName[i]}</span><span class="srv-status">${state.online[i]?'온라인':'오프라인'}</span></button>`).join('')}</div>
+        <div class="server-grid">${[0, 1, 2, 3].map(i => `<button class="srv-btn ${state.online[i] ? 'online' : 'offline'}" data-server="${i}"><span class="srv-icon">🖥️</span><span class="srv-name">${C.srvName[i]}</span><span class="srv-status">${state.online[i] ? '온라인' : '오프라인'}</span></button>`).join('')}</div>
         ${rr}
         <div class="section-divider"></div>
         <h3>시스템 영향도 (Trade-Off)</h3>
-        <div style="display:flex; justify-content:center; align-items:center; gap:20px; padding:10px 0;">
+        <div style="display:flex; justify-content:center; align-items:center; gap:calc(20px * var(--ui-scale)); padding:calc(10px * var(--ui-scale)) 0;">
             <div style="text-align:center;">
                 <svg class="accuracy-ring" viewBox="0 0 120 120">
                     <circle cx="60" cy="60" r="50" fill="none" stroke="#E5E7EB" stroke-width="8"/>
-                    <circle cx="60" cy="60" r="50" fill="none" stroke="${accColor}" stroke-width="8" stroke-dasharray="314" stroke-dashoffset="${314*(1-acc/100)}" stroke-linecap="round" transform="rotate(-90 60 60)" style="transition:all .6s ease"/>
+                    <circle cx="60" cy="60" r="50" fill="none" stroke="${accColor}" stroke-width="8" stroke-dasharray="314" stroke-dashoffset="${314 * (1 - acc / 100)}" stroke-linecap="round" transform="rotate(-90 60 60)" style="transition:all .6s ease"/>
                     <text x="60" y="66" text-anchor="middle" fill="#1F2937" font-size="22" font-weight="800">${acc}%</text>
                 </svg>
-                <div style="font-size:12px; font-weight:600; color:var(--text2); margin-top:8px;">중앙 집중 모델 일치도</div>
+                <div style="font-size:calc(12px * var(--ui-scale)); font-weight:600; color:var(--text2); margin-top:calc(8px * var(--ui-scale));">중앙 집중 모델 일치도</div>
             </div>
-            <div style="text-align:center; padding:15px; background:#FEF2F2; border-radius:12px; min-width:110px;">
-                <div style="font-size:26px; font-weight:800; color:#EF4444;">${latency}<span style="font-size:14px; font-weight:600;">ms</span></div>
-                <div style="font-size:12px; font-weight:600; color:#991B1B; margin-top:4px;">우회 통신 지연</div>
+            <div style="text-align:center; padding:calc(15px * var(--ui-scale)); background:#FEF2F2; border-radius:calc(12px * var(--ui-scale)); min-width:calc(110px * var(--ui-scale));">
+                <div style="font-size:calc(26px * var(--ui-scale)); font-weight:800; color:#EF4444;">${latency}<span style="font-size:calc(14px * var(--ui-scale)); font-weight:600;">ms</span></div>
+                <div style="font-size:calc(12px * var(--ui-scale)); font-weight:600; color:#991B1B; margin-top:calc(4px * var(--ui-scale));">우회 통신 지연</div>
             </div>
         </div>
         <div class="hint">⚠️ 장애 시 우회하는 센서의 색상이 <b>해당 목적지 서버의 색</b>으로 변경되며 화살표가 표시됩니다.</div>`;
@@ -1009,8 +1012,8 @@
 
         if (state.gnnAnimating) {
             mp.innerHTML = `<h2>🧮 GNN 다이나믹 연산 모델</h2>
-            <p class="desc" style="margin-bottom: 270px;">지도상의 관측 데이터(센서 네트워크 변수)가 행렬 구조로 재배열되어 시공간 특징을 학습하는 과정을 역동적으로 추적합니다. (현재 보간 상태: <strong>${mName}</strong>)</p>
-            <div style="font-size:11.5px; line-height:1.5; color:var(--text2); background:#F3F4F6; padding:10px; border-radius:8px;">
+            <p class="desc" style="margin-bottom: calc(270px * var(--ui-scale));">지도상의 관측 데이터(센서 네트워크 변수)가 행렬 구조로 재배열되어 시공간 특징을 학습하는 과정을 역동적으로 추적합니다. (현재 보간 상태: <strong>${mName}</strong>)</p>
+            <div style="font-size:calc(11.5px * var(--ui-scale)); line-height:1.5; color:var(--text2); background:#F3F4F6; padding:calc(10px * var(--ui-scale)); border-radius:calc(8px * var(--ui-scale));">
                 모든 센서 노드가 허공으로 떠오르며 <strong>인접행렬(Ã)</strong>과 <strong>특징벡터(X)</strong>로 치환되고, 딥러닝 뉴럴 네트워크(GNN Layer)를 거쳐 특징 임베딩(H)으로 업데이트되어 다시 지도상의 노드로 회귀합니다.
             </div>`;
             return;
@@ -1018,11 +1021,11 @@
 
         let nodeVals = [];
         if (m === 'zero') {
-            nodeVals = [{c:'v-real',t:'95'}, {c:'v-zero',t:'0'}, {c:'v-zero',t:'0'}, {c:'v-zero',t:'0'}];
+            nodeVals = [{ c: 'v-real', t: '95' }, { c: 'v-zero', t: '0' }, { c: 'v-zero', t: '0' }, { c: 'v-zero', t: '0' }];
         } else if (m === 'neighbor') {
-            nodeVals = [{c:'v-real',t:'95'}, {c:'v-avg',t:'47'}, {c:'v-zero',t:'0'}, {c:'v-avg',t:'47'}];
+            nodeVals = [{ c: 'v-real', t: '95' }, { c: 'v-avg', t: '47' }, { c: 'v-zero', t: '0' }, { c: 'v-avg', t: '47' }];
         } else {
-            nodeVals = [{c:'v-real',t:'95'}, {c:'v-prop',t:'78'}, {c:'v-prop',t:'65'}, {c:'v-prop',t:'70'}];
+            nodeVals = [{ c: 'v-real', t: '95' }, { c: 'v-prop', t: '78' }, { c: 'v-prop', t: '65' }, { c: 'v-prop', t: '70' }];
         }
         const cellsHTML = nodeVals.map(v => `<div class="mat-cell ${v.c}">${v.t}</div>`).join('');
 
@@ -1031,30 +1034,30 @@
         <div class="math-eq">H<sup>(l+1)</sup> = σ( Ã · X<sup>(l)</sup> · W )</div>
         <div class="matrix-container">
             <div style="text-align:center;">
-                <div style="font-size:11px; color:#6B7280; font-weight:bold; margin-bottom:2px;">Ã (인접행렬)</div>
-                <div class="matrix" style="grid-template-columns: repeat(4, 14px);">
+                <div style="font-size:calc(11px * var(--ui-scale)); color:#6B7280; font-weight:bold; margin-bottom:calc(2px * var(--ui-scale));">Ã (인접행렬)</div>
+                <div class="matrix" style="grid-template-columns: repeat(4, calc(14px * var(--ui-scale)));">
                     <div class="mat-cell gray">1</div><div class="mat-cell gray">1</div><div class="mat-cell gray">0</div><div class="mat-cell gray">1</div>
                     <div class="mat-cell gray">1</div><div class="mat-cell gray">1</div><div class="mat-cell gray">1</div><div class="mat-cell gray">0</div>
                     <div class="mat-cell gray">0</div><div class="mat-cell gray">1</div><div class="mat-cell gray">1</div><div class="mat-cell gray">1</div>
                     <div class="mat-cell gray">1</div><div class="mat-cell gray">0</div><div class="mat-cell gray">1</div><div class="mat-cell gray">1</div>
                 </div>
             </div>
-            <div style="font-size:16px; font-weight:bold; color:var(--text2);">×</div>
+            <div style="font-size:calc(16px * var(--ui-scale)); font-weight:bold; color:var(--text2);">×</div>
             <div style="text-align:center;">
-                <div style="font-size:11px; color:#6B7280; font-weight:bold; margin-bottom:2px;">X (특징)</div>
-                <div class="matrix" style="grid-template-columns: 14px;">
+                <div style="font-size:calc(11px * var(--ui-scale)); color:#6B7280; font-weight:bold; margin-bottom:calc(2px * var(--ui-scale));">X (특징)</div>
+                <div class="matrix" style="grid-template-columns: calc(14px * var(--ui-scale));">
                     ${cellsHTML}
                 </div>
             </div>
-            <div style="font-size:16px; font-weight:bold; color:var(--text2);">⇒</div>
+            <div style="font-size:calc(16px * var(--ui-scale)); font-weight:bold; color:var(--text2);">⇒</div>
             <div class="nn-block">
                 <div class="pulse"></div>
                 <span>GNN</span>
                 <span>Layer</span>
             </div>
         </div>
-        <button id="btn-run-gnn" style="margin-top:15px; width:100%; padding:10px; background:#10B981; color:white; border:none; border-radius:6px; font-weight:bold; cursor:pointer;">▶ 연산 애니메이션 실행</button>
-        <div style="margin-top:10px; font-size:11.5px; line-height:1.5; color:var(--text2); background:#F3F4F6; padding:10px; border-radius:8px;">
+        <button id="btn-run-gnn" style="margin-top:calc(15px * var(--ui-scale)); width:100%; padding:calc(10px * var(--ui-scale)); background:#10B981; color:white; border:none; border-radius:calc(6px * var(--ui-scale)); font-weight:bold; font-size:calc(13px * var(--ui-scale)); cursor:pointer;">▶ 연산 애니메이션 실행</button>
+        <div style="margin-top:calc(10px * var(--ui-scale)); font-size:calc(11.5px * var(--ui-scale)); line-height:1.5; color:var(--text2); background:#F3F4F6; padding:calc(10px * var(--ui-scale)); border-radius:calc(8px * var(--ui-scale));">
             행렬 곱 연산(Ã × X)을 통해 주변 센서 간의 상태 정보가 혼합되며 특징이 추출됩니다.
         </div>`;
 
@@ -1123,7 +1126,82 @@
         const d = document.getElementById('fl-step-desc'); if (d) d.textContent = FL_DESCS[state.flStep];
     }
 
+    // ===== UI Scale Control =====
+    function initScaleWidget() {
+        const toggle = document.getElementById('scale-toggle');
+        const drawer = document.getElementById('scale-drawer');
+        const slider = document.getElementById('scale-slider');
+        const resetBtn = document.getElementById('scale-reset');
+        const gSlider = document.getElementById('graph-scale-slider');
+        if (!toggle || !drawer || !slider) return;
+
+        // Load persisted UI scale
+        const saved = localStorage.getItem('fedgnn-ui-scale');
+        if (saved) { const v = parseInt(saved); if (v >= 50 && v <= 200) { slider.value = v; applyScale(v); } }
+
+        // Load persisted graph scale
+        const gSaved = localStorage.getItem('fedgnn-graph-scale');
+        if (gSaved && gSlider) { const v = parseInt(gSaved); if (v >= 50 && v <= 200) { gSlider.value = v; applyGraphScale(v); } }
+
+        toggle.addEventListener('click', () => {
+            const isOpen = drawer.classList.contains('open');
+            drawer.classList.toggle('open', !isOpen);
+            toggle.classList.toggle('open', !isOpen);
+        });
+
+        document.addEventListener('click', (e) => {
+            const widget = document.getElementById('scale-widget');
+            if (widget && !widget.contains(e.target) && drawer.classList.contains('open')) {
+                drawer.classList.remove('open');
+                toggle.classList.remove('open');
+            }
+        });
+
+        slider.addEventListener('input', () => applyScale(parseInt(slider.value)));
+
+        document.querySelectorAll('.scale-preset-btn').forEach(btn => {
+            btn.addEventListener('click', () => { const v = parseInt(btn.dataset.scale); slider.value = v; applyScale(v); });
+        });
+
+        // Graph scale
+        if (gSlider) {
+            gSlider.addEventListener('input', () => applyGraphScale(parseInt(gSlider.value)));
+        }
+        document.querySelectorAll('.graph-preset-btn').forEach(btn => {
+            btn.addEventListener('click', () => { const v = parseInt(btn.dataset.scale); if (gSlider) gSlider.value = v; applyGraphScale(v); });
+        });
+
+        if (resetBtn) {
+            resetBtn.addEventListener('click', () => {
+                slider.value = 100; applyScale(100);
+                if (gSlider) { gSlider.value = 100; applyGraphScale(100); }
+            });
+        }
+    }
+
+    function applyScale(percent) {
+        const scale = percent / 100;
+        document.documentElement.style.setProperty('--ui-scale', scale);
+        const d = document.getElementById('scale-value');
+        if (d) d.textContent = percent + '%';
+        document.querySelectorAll('.scale-preset-btn').forEach(btn => {
+            btn.classList.toggle('active', parseInt(btn.dataset.scale) === percent);
+        });
+        localStorage.setItem('fedgnn-ui-scale', percent);
+        renderPanel();
+    }
+
+    function applyGraphScale(percent) {
+        state.graphScale = percent / 100;
+        const d = document.getElementById('graph-scale-value');
+        if (d) d.textContent = percent + '%';
+        document.querySelectorAll('.graph-preset-btn').forEach(btn => {
+            btn.classList.toggle('active', parseInt(btn.dataset.scale) === percent);
+        });
+        localStorage.setItem('fedgnn-graph-scale', percent);
+    }
+
     // ===== Init =====
-    function init() { initMap(); initCanvas(); document.querySelectorAll('.mode-btn').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode))); setMode('overview'); requestAnimationFrame(draw); }
+    function init() { initMap(); initCanvas(); document.querySelectorAll('.mode-btn').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode))); setMode('overview'); initScaleWidget(); requestAnimationFrame(draw); }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();
