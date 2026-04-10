@@ -14,30 +14,30 @@
 
     // ===== Sensors =====
     const SENSORS = [
-        { id: 0, lat: 34.020, lng: -118.490, cluster: 0 },
-        { id: 1, lat: 34.045, lng: -118.475, cluster: 0 },
-        { id: 2, lat: 34.015, lng: -118.450, cluster: 0 },
-        { id: 3, lat: 34.050, lng: -118.435, cluster: 0 },
-        { id: 4, lat: 34.030, lng: -118.410, cluster: 0 },
-        { id: 5, lat: 34.065, lng: -118.420, cluster: 0 },
-        { id: 6, lat: 34.140, lng: -118.380, cluster: 1 },
-        { id: 7, lat: 34.110, lng: -118.395, cluster: 1 },
-        { id: 8, lat: 34.095, lng: -118.350, cluster: 1 },
-        { id: 9, lat: 34.130, lng: -118.320, cluster: 1 },
-        { id: 10, lat: 34.100, lng: -118.300, cluster: 1 },
-        { id: 11, lat: 34.080, lng: -118.280, cluster: 1 },
-        { id: 12, lat: 34.050, lng: -118.260, cluster: 2 },
-        { id: 13, lat: 34.070, lng: -118.230, cluster: 2 },
-        { id: 14, lat: 34.030, lng: -118.245, cluster: 2 },
-        { id: 15, lat: 34.035, lng: -118.210, cluster: 2 },
-        { id: 16, lat: 34.010, lng: -118.225, cluster: 2 },
-        { id: 17, lat: 33.990, lng: -118.240, cluster: 2 },
-        { id: 18, lat: 33.960, lng: -118.390, cluster: 3 },
-        { id: 19, lat: 33.975, lng: -118.350, cluster: 3 },
-        { id: 20, lat: 33.930, lng: -118.365, cluster: 3 },
-        { id: 21, lat: 33.920, lng: -118.330, cluster: 3 },
-        { id: 22, lat: 33.955, lng: -118.300, cluster: 3 },
-        { id: 23, lat: 33.910, lng: -118.290, cluster: 3 },
+        { id: 0, lat: 37.494, lng: 127.016, cluster: 0 },
+        { id: 1, lat: 37.519, lng: 127.031, cluster: 0 },
+        { id: 2, lat: 37.489, lng: 127.056, cluster: 0 },
+        { id: 3, lat: 37.524, lng: 127.071, cluster: 0 },
+        { id: 4, lat: 37.504, lng: 127.096, cluster: 0 },
+        { id: 5, lat: 37.539, lng: 127.086, cluster: 0 },
+        { id: 6, lat: 37.614, lng: 127.126, cluster: 1 },
+        { id: 7, lat: 37.584, lng: 127.111, cluster: 1 },
+        { id: 8, lat: 37.569, lng: 127.156, cluster: 1 },
+        { id: 9, lat: 37.604, lng: 127.186, cluster: 1 },
+        { id: 10, lat: 37.574, lng: 127.206, cluster: 1 },
+        { id: 11, lat: 37.554, lng: 127.226, cluster: 1 },
+        { id: 12, lat: 37.524, lng: 127.246, cluster: 2 },
+        { id: 13, lat: 37.544, lng: 127.276, cluster: 2 },
+        { id: 14, lat: 37.504, lng: 127.261, cluster: 2 },
+        { id: 15, lat: 37.509, lng: 127.296, cluster: 2 },
+        { id: 16, lat: 37.484, lng: 127.281, cluster: 2 },
+        { id: 17, lat: 37.464, lng: 127.266, cluster: 2 },
+        { id: 18, lat: 37.434, lng: 127.116, cluster: 3 },
+        { id: 19, lat: 37.449, lng: 127.156, cluster: 3 },
+        { id: 20, lat: 37.404, lng: 127.141, cluster: 3 },
+        { id: 21, lat: 37.394, lng: 127.176, cluster: 3 },
+        { id: 22, lat: 37.429, lng: 127.206, cluster: 3 },
+        { id: 23, lat: 37.384, lng: 127.216, cluster: 3 },
     ];
 
     const EDGES = [
@@ -48,7 +48,7 @@
         [5, 7], [3, 8], [11, 12], [10, 13], [17, 22], [14, 19], [18, 2], [19, 4]
     ];
 
-    const CENTRAL_POS = { lat: 34.045, lng: -118.355 };
+    const CENTRAL_POS = { lat: 37.519, lng: 127.151 };
     // GNN mode: Server A (cluster 0) is the focal server.
     // Server A KNOWS its own sensors (cluster 0), but does NOT know other clusters' sensors.
     const FOCAL_CLUSTER = 0; // Server A
@@ -103,7 +103,7 @@
     // ===== Map & Canvas =====
     let map, canvas, ctx;
     function initMap() {
-        map = L.map('map', { center: [34.025, -118.35], zoom: 11, zoomControl: false, attributionControl: true });
+        map = L.map('map', { center: [37.499, 127.156], zoom: 11, zoomControl: false, attributionControl: true });
         L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; OSM &copy; CARTO', maxZoom: 18 }).addTo(map);
         L.control.zoom({ position: 'bottomright' }).addTo(map);
         map.on('click', e => { if (state.mode === 'gnn') { const ci = findClosest(e.latlng); if (ci >= 0) state.waves.push({ source: ci, t: 0 }); } });
@@ -867,8 +867,8 @@
 
     // ===== Panel HTML =====
     function getOverviewPanel() {
-        return `<h2>📍 LA 교통 센서 네트워크</h2>
-        <p class="desc">METR-LA 데이터셋 기반 <strong>고속도로 교통 센서</strong> 24개의 실시간 교통 상태를 보여줍니다.</p>
+        return `<h2>📍 서울 코엑스 센서 네트워크</h2>
+        <p class="desc">서울 코엑스 일대 기반 <strong>도로 교통 센서</strong> 24개의 실시간 교통 상태를 보여줍니다.</p>
         <div class="section-divider"></div>
         <div class="stat-row"><span class="stat-label">센서 수</span><span class="stat-value">24개</span></div>
         <div class="stat-row"><span class="stat-label">연결 수</span><span class="stat-value">${EDGES.length}개</span></div>
