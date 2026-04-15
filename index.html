@@ -31,19 +31,19 @@
 
     <!-- Mode selector -->
     <div class="panel mode-panel" id="mode-panel">
-        <button class="mode-btn active" data-mode="overview" id="mode-overview">
+        <button class="mode-btn active" data-mode="overview" id="mode-overview" data-tooltip="교통 센서 네트워크를 그래프로 보는 기본 화면입니다.&#10;각 센서는 그래프의 노드, 도로 연결은 엣지로 표현됩니다.&#10;센서 값에는 차량 속도, 통과 차량 수, 도로 점유 시간 등이 포함됩니다.">
             <span class="mode-icon">📍</span> 개요
         </button>
-        <button class="mode-btn" data-mode="central" id="mode-central">
+        <button class="mode-btn" data-mode="central" id="mode-central" data-tooltip="GNN은 센서들을 그래프 데이터로 해석하고, 이를 행렬로 변환해 신경망 학습을 합니다. 중앙 서버는 모든 센서 값을 직접 수집해 GNN을 학습합니다.&#10;전체 센서 값을 사용하므로 예측 성능은 높지만, 네트워크 비용이 크고 중앙 서버 장애 시 전체 시스템이 멈출 수 있습니다.&#10; 내비게이션의 경로 알고리즘은 현재 상태에서의 최적 경로를 찾습니다. 수동적으로 경로예측을 하는 고전 알고리즘과 달리 GNN은 미래의 차량 혼잡도를 예측할 수 있습니다. 이에 단순 경로 안내를 넘어 전체 교통 혼잡도 예측과 신호등, 가변차로 제어 등에도 응용 가능합니다.">
             <span class="mode-icon">🏛️</span> 중앙 GNN
         </button>
-        <button class="mode-btn" data-mode="fl" id="mode-fl">
+        <button class="mode-btn" data-mode="fl" id="mode-fl" data-tooltip="연합학습은 각 엣지 서버가 로컬 데이터로 먼저 학습한 뒤, 중앙 서버에는 모델 가중치만 전송하는 방식입니다.&#10;원본 센서 데이터를 중앙으로 모으지 않고, 모델의 가중치만 서버로 전달하기에 통신 비용을 줄일 수 있습니다.&#10; 또한 엣지 서버에서 바로 추론할 수 있어 지연 시간도 줄어듭니다.">
             <span class="mode-icon">🔄</span> 연합학습
         </button>
-        <button class="mode-btn" data-mode="gnn" id="mode-gnn">
+        <button class="mode-btn" data-mode="gnn" id="mode-gnn" data-tooltip="GNN은 전체 그래프 노드의 값을 필요로 하지만, 엣지 서버는 자기 지역 센서 값만 알고 있습니다.&#10;그래서 모르는 센서 값을 보간해야 로컬 GNN 학습이 가능합니다.&#10;Zero-fill은 0으로 채우고, 이웃 평균은 인접 센서 평균을 쓰며, 특징 전파는 이 과정을 n-hop으로 반복합니다. 특징 전파가 중앙 학습과 유사한 성능을 보입니다.">
             <span class="mode-icon">🧠</span> 분산 GNN
         </button>
-        <button class="mode-btn" data-mode="resilience" id="mode-resilience">
+        <button class="mode-btn" data-mode="resilience" id="mode-resilience" data-tooltip="서버 장애 상황에서 시스템이 얼마나 버티는지 보여줍니다.&#10;중앙 집중 방식은 중앙 서버가 꺼지면 전체 학습과 예측이 중단됩니다.&#10;연합학습 구조는 일부 서버가 꺼져도 다른 서버가 계속 동작할 수 있어 내결함성이 더 좋습니다.">
             <span class="mode-icon">⚡</span> 장애 테스트
         </button>
     </div>

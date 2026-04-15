@@ -1387,8 +1387,8 @@
         </button>
         <div class="section-divider"></div>
         <h3>중앙 집중 학습 특성</h3>
-        <div class="stat-row"><span class="stat-label">장점</span><span class="stat-value">전역 문맥 최대 활용</span></div>
-        <div class="stat-row"><span class="stat-label">주의점</span><span class="stat-value">데이터 집중/단일 장애점</span></div>
+        <div class="stat-row"><span class="stat-label">장점</span><span class="stat-value">전역 데이터 최대 활용</span></div>
+        <div class="stat-row"><span class="stat-label">주의점</span><span class="stat-value">네트워크 비용/단일 장애점</span></div>
         <div class="section-divider"></div>
         <h3>교통량 추이 (실시간 Scrolling)</h3>
         <div class="chart-wrap"><canvas id="traffic-canvas" height="90"></canvas>
@@ -1400,7 +1400,7 @@
     const FL_DESCS = [
         '지도상의 각 지역 센서들이 수집한 교통 데이터를 자신이 속한 엣지 서버(서버 A,B,C,D)로 전송합니다.',
         '각 엣지 서버가 수집된 센서 데이터로 로컬 STGNN 모델을 학습합니다. 이 과정에서 원본 데이터는 외부로 절대 전송되지 않습니다.',
-        '학습이 완료된 모델 파라미터(가중치)만 중앙 서버로 전송합니다. 개인 프라이버시가 보호되며 파라미터는 전체 데이터 크기의 약 7%에 불과합니다.',
+        '학습이 완료된 모델 파라미터(가중치)만 중앙 서버로 전송합니다. 파라미터는 전체 데이터 크기의 약 7%에 불과합니다.',
         '중앙 서버에서 수신된 4개의 로컬 파라미터들을 FedAvg 알고리즘으로 평균내어 하나의 글로벌 모델로 통합합니다.',
         '중앙 서버가 강화된 글로벌 모델 정보를 다시 모든 엣지 서버에 동기화(배포)하여 다음 라운드를 준비합니다.',
     ];
@@ -1441,7 +1441,7 @@
         <div class="section-divider"></div>
         <div class="server-a-legend">
             <span style="color:${C.srv[0]}">●</span> 서버 A 센서 (알려진 데이터)
-            &nbsp;|&nbsp;
+            <br>
             <span style="color:#9CA3AF">○</span> 다른 서버 센서 (결측 → 보간)
         </div>
         <h3 style="margin-top:calc(10px * var(--ui-scale))">보간 방식 선택</h3>
@@ -1463,18 +1463,17 @@
         <div class="section-divider"></div>
         <h3>방식별 성능 비교</h3>
         <table class="cmp-table">
-            <tr><th>방식</th><th>평균 성능비</th><th>우수 사례</th><th>전파 반복</th></tr>
-            <tr class="${m === 'zero' ? 'active-row' : ''}"><td class="method-name">Zero-fill</td><td>×1.81</td><td>23/78<br><span style="font-size:calc(9px * var(--ui-scale)); color:var(--text3);">29.5%</span></td><td>0회</td></tr>
-            <tr class="${m === 'neighbor' ? 'active-row' : ''}"><td class="method-name">이웃 평균</td><td>×1.83</td><td>9/78<br><span style="font-size:calc(9px * var(--ui-scale)); color:var(--text3);">11.5%</span></td><td>1회</td></tr>
-            <tr class="${m === 'propagation' ? 'active-row' : ''}"><td class="method-name">특징 전파</td><td>×1.24</td><td>46/78<br><span style="font-size:calc(9px * var(--ui-scale)); color:var(--text3);">59.0%</span></td><td>5~15회</td></tr>
+            <tr><th>방식</th><th>평균 성능비</th><th>전파 반복</th></tr>
+            <tr class="${m === 'zero' ? 'active-row' : ''}"><td class="method-name">Zero-fill</td><td>×1.81</td><td>0회</td></tr>
+            <tr class="${m === 'neighbor' ? 'active-row' : ''}"><td class="method-name">이웃 평균</td><td>×1.83</td><td>1회</td></tr>
+            <tr class="${m === 'propagation' ? 'active-row' : ''}"><td class="method-name">특징 전파</td><td>×1.24</td><td>5~15회</td></tr>
         </table>
-        <p class="desc">우수 사례 수는 논문 Section 5.2의 78개 모델-데이터셋 조합 기준입니다. Zero-fill의 23/78은 그래프 기반 방식이 우수했던 55개를 제외한 값입니다.</p>
+        <p class="desc">논문 Fig. 7의 평균 성능비 기준이며, 낮을수록 단일 노드 STGNN 성능에 더 가깝습니다.</p>
         <div class="section-divider"></div>
         <h3>교통량 추이 (실시간 Scrolling)</h3>
         <div class="chart-wrap"><canvas id="traffic-canvas" height="90"></canvas>
             <div class="curve-legend"><div class="curve-legend-item"><div class="curve-legend-line" style="background:#3B82F6"></div>실제흐름</div><div class="curve-legend-item"><div class="curve-legend-line" style="background:${m === 'zero' ? '#9CA3AF' : m === 'neighbor' ? '#F59E0B' : '#10B981'}"></div>예측 (${mLabel})</div></div>
-        </div>
-        <div class="hint">🖱️ 지도 위의 센서를 클릭하면 신호 전파를 볼 수 있습니다</div>`;
+        </div>`;
     }
 
     function getResiliencePanel() {
@@ -1569,7 +1568,7 @@
         </div>
         <button id="btn-run-central-gnn" style="margin-top:calc(15px * var(--ui-scale)); width:100%; padding:calc(10px * var(--ui-scale)); background:${C.central}; color:white; border:none; border-radius:calc(6px * var(--ui-scale)); font-weight:bold; font-size:calc(13px * var(--ui-scale)); cursor:pointer;">▶ 중앙 GNN 연산 애니메이션 실행</button>
         <div style="margin-top:calc(10px * var(--ui-scale)); font-size:calc(11.5px * var(--ui-scale)); line-height:1.5; color:var(--text2); background:#F3F4F6; padding:calc(10px * var(--ui-scale)); border-radius:calc(8px * var(--ui-scale));">
-            분산 보간 없이 모든 노드 특징을 사용하므로 예측은 안정적이지만, 원본 데이터가 중앙으로 집중되는 구조입니다.
+           모든 센서의 데이터를 사용하므로 예측은 안정적이지만, 모든 센서의 값들이 중앙으로 전달되는 구조입니다.
         </div>`;
 
         setTimeout(() => {
@@ -1603,7 +1602,7 @@
             mp.innerHTML = `<h2>🧮 GNN 다이나믹 연산 모델</h2>
             <p class="desc" style="margin-bottom: calc(270px * var(--ui-scale));">지도상의 관측 데이터(센서 네트워크 변수)가 행렬 구조로 재배열되어 시공간 특징을 학습하는 과정을 역동적으로 추적합니다. (현재 보간 상태: <strong>${mName}</strong>)</p>
             <div style="font-size:calc(11.5px * var(--ui-scale)); line-height:1.5; color:var(--text2); background:#F3F4F6; padding:calc(10px * var(--ui-scale)); border-radius:calc(8px * var(--ui-scale));">
-                모든 센서 노드가 허공으로 떠오르며 <strong>인접행렬(Ã)</strong>과 <strong>특징벡터(X)</strong>로 치환되고, 딥러닝 뉴럴 네트워크(GNN Layer)를 거쳐 특징 임베딩(H)으로 업데이트되어 다시 지도상의 노드로 회귀합니다.
+                센서 데이터들이 <strong>인접행렬(Ã)</strong>과 <strong>특징벡터(X)</strong>로 변환되고, 딥러닝 뉴럴 네트워크(GNN Layer)를 거쳐 특징 임베딩(H)으로 업데이트하여 교통량 예측에 사용합니다.
             </div>`;
             return;
         }
