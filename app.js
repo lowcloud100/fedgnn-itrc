@@ -84,9 +84,9 @@
     function trafficColor(sp) { return sp > 45 ? C.trafficFree : sp > 28 ? C.trafficMod : C.trafficJam; }
     function trafficCondKR(sp) { return sp > 45 ? { t: '원활', c: 'free' } : sp > 28 ? { t: '서행', c: 'moderate' } : { t: '정체', c: 'congested' }; }
 
-    // ===== Loss curves =====
+    // ===== Paper-derived ratio curves =====
     function makeLoss(m) {
-        const c = { zero: { d: 14, f: 0.34, n: 0.035 }, neighbor: { d: 22, f: 0.19, n: 0.02 }, propagation: { d: 32, f: 0.07, n: 0.012 } }[m];
+        const c = { zero: { d: 14, f: 1.81, n: 0.04 }, neighbor: { d: 22, f: 1.83, n: 0.035 }, propagation: { d: 32, f: 1.24, n: 0.02 } }[m];
         const r = [];
         for (let i = 0; i < 100; i++) r.push(0.88 * Math.exp(-i / c.d) + c.f + Math.sin(i * 1.3 + m.length) * 0.5 * c.n);
         return r;
@@ -100,7 +100,7 @@
     // ===== State =====
     const state = {
         mode: 'overview',
-        centralPlaying: false, centralEpoch: 1, centralStep: 0, centralProgress: 0, centralSpeed: 3, centralAnimating: false, centralAnimStart: 0,
+        centralPlaying: false, centralEpoch: 1, centralStep: 0, centralProgress: 0, centralSpeed: 3, centralAnimating: false, centralAnimStart: 0, centralDown: false,
         flPlaying: false, flRound: 1, flStep: 0, flProgress: 0, flSpeed: 3,
         imputeMethod: 'zero', waves: [], lossFrame: 0, online: [true, true, true, true], gnnAnimating: false, gnnAnimStart: 0, graphScale: 1
     };
@@ -143,7 +143,7 @@
         if (state.mode === 'gnn') drawGNN(time);     // pulse rings = GNN message passing
         if (state.mode === 'resilience') drawResilience(time); // dashed lines = rerouting
 
-        if (state.centralPlaying && state.mode === 'central' && !state.centralAnimating) {
+        if (state.centralPlaying && state.mode === 'central' && !state.centralAnimating && !state.centralDown) {
             state.centralProgress += 0.004 * state.centralSpeed;
             if (state.centralProgress >= 1) {
                 state.centralProgress = 0;
@@ -269,14 +269,15 @@
             for (let ci = 0; ci < 4; ci++) {
                 const cc = clusterCenter(ci), p = pxLL(cc.lat, cc.lng);
                 const isOff = state.mode === 'resilience' && !state.online[ci];
-                const col = C.srv[ci];
-                const bgCol = isOff ? '#F3F4F6' : '#FFFFFF';
-                const strokeCol = isOff ? '#D1D5DB' : col;
+                const isMutedGNNServer = state.mode === 'gnn' && ci !== FOCAL_CLUSTER;
+                const col = isMutedGNNServer ? '#9CA3AF' : C.srv[ci];
+                const bgCol = isOff || isMutedGNNServer ? '#F3F4F6' : '#FFFFFF';
+                const strokeCol = isOff || isMutedGNNServer ? '#D1D5DB' : col;
 
                 const w = 28 * G, h = 34 * G, r = 6 * G;
                 const sx = p.x - w / 2, sy = p.y - h / 2 - 4 * G;
 
-                ctx.shadowColor = isOff ? 'transparent' : hexA(col, 0.3);
+                ctx.shadowColor = (isOff || isMutedGNNServer) ? 'transparent' : hexA(col, 0.3);
                 ctx.shadowBlur = 12 * G; ctx.shadowOffsetY = 4 * G;
                 drawRoundRect(ctx, sx, sy, w, h, r);
                 ctx.fillStyle = bgCol; ctx.fill();
@@ -284,21 +285,24 @@
                 ctx.shadowColor = 'transparent';
                 ctx.strokeStyle = strokeCol; ctx.lineWidth = isOff ? 1.5 * G : 2 * G; ctx.stroke();
 
-                ctx.fillStyle = isOff ? '#E5E7EB' : hexA(col, 0.15);
+                ctx.fillStyle = (isOff || isMutedGNNServer) ? '#E5E7EB' : hexA(col, 0.15);
                 drawRoundRect(ctx, sx + 5 * G, sy + 5 * G, w - 10 * G, 4 * G, 1.5 * G); ctx.fill();
                 drawRoundRect(ctx, sx + 5 * G, sy + 13 * G, w - 10 * G, 4 * G, 1.5 * G); ctx.fill();
                 drawRoundRect(ctx, sx + 5 * G, sy + 21 * G, w - 10 * G, 4 * G, 1.5 * G); ctx.fill();
 
-                if (!isOff) {
+                if (!isOff && !isMutedGNNServer) {
                     const ledCol = (Math.sin(time * 0.005 + ci) > 0) ? '#10B981' : '#34D399';
                     ctx.fillStyle = ledCol;
                     ctx.beginPath(); ctx.arc(sx + w - 7 * G, sy + 7 * G, 1.5 * G, 0, Math.PI * 2); ctx.fill();
-                } else {
+                } else if (isOff) {
                     ctx.fillStyle = '#EF4444';
+                    ctx.beginPath(); ctx.arc(sx + w - 7 * G, sy + 7 * G, 1.5 * G, 0, Math.PI * 2); ctx.fill();
+                } else {
+                    ctx.fillStyle = '#CBD5E1';
                     ctx.beginPath(); ctx.arc(sx + w - 7 * G, sy + 7 * G, 1.5 * G, 0, Math.PI * 2); ctx.fill();
                 }
 
-                ctx.fillStyle = isOff ? '#9CA3AF' : col;
+                ctx.fillStyle = (isOff || isMutedGNNServer) ? '#9CA3AF' : col;
                 ctx.font = `bold ${11 * G}px Inter`; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
                 ctx.fillText(C.srvName[ci], p.x, sy + h + 6 * G);
 
@@ -313,25 +317,32 @@
         const cp = pxLL(CENTRAL_POS.lat, CENTRAL_POS.lng);
         const cw = 44 * G, ch = 32 * G, cr = 8 * G;
         const cx = cp.x - cw / 2, cy = cp.y - ch / 2 - 4 * G;
+        const centralOff = state.mode === 'central' && state.centralDown;
 
-        ctx.shadowColor = hexA(C.central, 0.4); ctx.shadowBlur = 15 * G; ctx.shadowOffsetY = 5 * G;
+        ctx.shadowColor = centralOff ? hexA('#EF4444', 0.25) : hexA(C.central, 0.4); ctx.shadowBlur = centralOff ? 10 * G : 15 * G; ctx.shadowOffsetY = 5 * G;
         drawRoundRect(ctx, cx, cy, cw, ch, cr);
-        ctx.fillStyle = '#FFFFFF'; ctx.fill();
+        ctx.fillStyle = centralOff ? '#F3F4F6' : '#FFFFFF'; ctx.fill();
         ctx.shadowColor = 'transparent';
 
-        ctx.strokeStyle = C.central; ctx.lineWidth = 2.5 * G; ctx.stroke();
+        ctx.strokeStyle = centralOff ? '#EF4444' : C.central; ctx.lineWidth = 2.5 * G; ctx.stroke();
 
         for (let i = 0; i < 3; i++) {
             const px = cx + 7 * G + i * 11 * G;
             drawRoundRect(ctx, px, cy + 6 * G, 8 * G, ch - 12 * G, 2 * G);
-            ctx.fillStyle = hexA(C.central, 0.1); ctx.fill();
-            ctx.fillStyle = (Math.sin(time * 0.008 + i) > 0.5) ? C.central : hexA(C.central, 0.3);
+            ctx.fillStyle = centralOff ? '#E5E7EB' : hexA(C.central, 0.1); ctx.fill();
+            ctx.fillStyle = centralOff ? '#EF4444' : (Math.sin(time * 0.008 + i) > 0.5) ? C.central : hexA(C.central, 0.3);
             ctx.beginPath(); ctx.arc(px + 4 * G, cy + 10 * G, 1.5 * G, 0, Math.PI * 2); ctx.fill();
             ctx.beginPath(); ctx.arc(px + 4 * G, cy + 15 * G, 1.2 * G, 0, Math.PI * 2); ctx.fill();
         }
 
-        ctx.fillStyle = C.central; ctx.font = `bold ${12 * G}px Inter`; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-        ctx.fillText('중앙 서버', cp.x, cy + ch + 8 * G);
+        if (centralOff) {
+            ctx.strokeStyle = '#EF4444'; ctx.lineWidth = 3 * G;
+            ctx.beginPath(); ctx.moveTo(cp.x - 13 * G, cp.y - 13 * G); ctx.lineTo(cp.x + 13 * G, cp.y + 13 * G);
+            ctx.moveTo(cp.x + 13 * G, cp.y - 13 * G); ctx.lineTo(cp.x - 13 * G, cp.y + 13 * G); ctx.stroke();
+        }
+
+        ctx.fillStyle = centralOff ? '#EF4444' : C.central; ctx.font = `bold ${12 * G}px Inter`; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        ctx.fillText(centralOff ? '중앙 서버 OFF' : '중앙 서버', cp.x, cy + ch + 8 * G);
 
         ctx.restore();
     }
@@ -419,6 +430,10 @@
     // ===== Centralized GNN overlay =====
     // Raw values are gathered at the central server before a single full-graph GNN update.
     function drawCentral(time) {
+        if (state.centralDown) {
+            drawCentralFailure(time);
+            return;
+        }
         if (state.centralAnimating) {
             drawCentralGNNAnimation(time);
             return;
@@ -444,6 +459,45 @@
         ctx.textAlign = 'center';
         ctx.textBaseline = 'bottom';
         ctx.fillText('중앙 GNN 학습 허브', cp.x, cp.y - 28);
+        ctx.restore();
+    }
+
+    function drawCentralFailure(time) {
+        const cp = pxLL(CENTRAL_POS.lat, CENTRAL_POS.lng);
+        const G = state.graphScale;
+        ctx.save();
+
+        SENSORS.forEach((s, i) => {
+            const sp = px(s);
+            const p = (time * 0.00055 + i * 0.037) % 0.78;
+            const x = lerp(sp.x, cp.x, p);
+            const y = lerp(sp.y, cp.y, p);
+
+            ctx.strokeStyle = hexA('#EF4444', 0.10);
+            ctx.lineWidth = 1 * G;
+            ctx.setLineDash([5 * G, 6 * G]);
+            ctx.beginPath(); ctx.moveTo(sp.x, sp.y); ctx.lineTo(cp.x, cp.y); ctx.stroke();
+            ctx.setLineDash([]);
+
+            ctx.fillStyle = hexA('#EF4444', 0.65);
+            ctx.beginPath(); ctx.arc(x, y, 2.4 * G, 0, Math.PI * 2); ctx.fill();
+        });
+
+        const pulse = Math.sin(time * 0.006) * 0.5 + 0.5;
+        ctx.strokeStyle = hexA('#EF4444', 0.45 + pulse * 0.35);
+        ctx.lineWidth = 3 * G;
+        ctx.beginPath(); ctx.arc(cp.x, cp.y, (35 + pulse * 10) * G, 0, Math.PI * 2); ctx.stroke();
+
+        ctx.fillStyle = 'rgba(255,255,255,0.94)';
+        drawRoundRect(ctx, cp.x - 75 * G, cp.y - 92 * G, 150 * G, 42 * G, 10 * G); ctx.fill();
+        ctx.strokeStyle = '#FCA5A5'; ctx.lineWidth = 1.5 * G; ctx.stroke();
+        ctx.fillStyle = '#B91C1C';
+        ctx.font = `bold ${12 * G}px Inter`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('중앙 서버 장애', cp.x, cp.y - 78 * G);
+        ctx.font = `bold ${10 * G}px Inter`;
+        ctx.fillText('수집 · 학습 · 예측 중단', cp.x, cp.y - 62 * G);
         ctx.restore();
     }
 
@@ -1175,15 +1229,15 @@
         const cw = cvs.parentElement.clientWidth - 24, ch = 90, dpr = devicePixelRatio || 1;
         cvs.width = cw * dpr; cvs.height = ch * dpr; cvs.style.width = cw + 'px'; cvs.style.height = ch + 'px';
         const c = cvs.getContext('2d'); c.scale(dpr, dpr); c.clearRect(0, 0, cw, ch);
-        const m = state.mode === 'gnn' ? state.imputeMethod : state.mode === 'central' ? 'central' : 'propagation';
+        const m = state.mode === 'gnn' ? state.imputeMethod : state.mode === 'central' ? (state.centralDown ? 'centralDown' : 'central') : 'propagation';
         const hour = getSimHour(time);
 
         c.strokeStyle = '#F3F4F6'; c.lineWidth = 1;
         [0.25, 0.5, 0.75].forEach(r => { c.beginPath(); c.moveTo(0, ch * r); c.lineTo(cw, ch * r); c.stroke(); });
 
         const points = [];
-        const err_scale = { zero: 28, neighbor: 12, propagation: 7, central: 3.5 }[m] || 7;
-        let col = { zero: '#9CA3AF', neighbor: '#F59E0B', propagation: '#10B981', central: C.central }[m] || '#10B981';
+        const err_scale = { zero: 28, neighbor: 12, propagation: 7, central: 3.5, centralDown: 0 }[m] || 7;
+        let col = { zero: '#9CA3AF', neighbor: '#F59E0B', propagation: '#10B981', central: C.central, centralDown: '#EF4444' }[m] || '#10B981';
         if (state.mode === 'overview') col = '#EF4444'; // Overview legend matches RED
 
         // Window: T - 6.5 hours to T + 1.5 hours
@@ -1194,11 +1248,12 @@
 
             // Generate smooth realistic noise per method (lowered frequency to prevent aliasing wiggle)
             const noise = (Math.sin(hWrapped * 4.3 + m.length) * Math.cos(hWrapped * 6.8)) * err_scale;
-            let bias = { zero: 14, neighbor: 4, propagation: 0.5, central: 0.2 }[m];
+            let bias = { zero: 14, neighbor: 4, propagation: 0.5, central: 0.2, centralDown: 0 }[m];
             // Zero-fill is terribly biased during free flow
             if (m === 'zero') bias += (actual - 20) * 0.45;
 
             let predicted = clamp(actual + noise - bias, 5, 65);
+            if (m === 'centralDown') predicted = 8 + Math.sin(hWrapped * 2.3) * 1.5;
             points.push({ actual, predicted });
         }
 
@@ -1238,18 +1293,20 @@
         const c = cvs.getContext('2d'); c.scale(dpr, dpr); c.clearRect(0, 0, cw, ch);
         const frame = Math.min(Math.floor(state.lossFrame), 99);
         const methods = ['zero', 'neighbor', 'propagation'], colors = ['#9CA3AF', '#F59E0B', '#10B981'];
+        const yMin = 1.0, yMax = 2.8;
+        const yOf = v => ch - ((v - yMin) / (yMax - yMin)) * ch * 0.78 - ch * 0.08;
         c.strokeStyle = '#F3F4F6'; c.lineWidth = 1;
         [0.25, 0.5, 0.75].forEach(r => { c.beginPath(); c.moveTo(0, ch * r); c.lineTo(cw, ch * r); c.stroke(); });
         methods.forEach((m, mi) => {
             const data = LOSS[m], isA = m === state.imputeMethod;
             c.strokeStyle = colors[mi]; c.lineWidth = isA ? 2.5 : 1.2; c.globalAlpha = isA ? 1 : 0.35;
             c.beginPath();
-            for (let i = 0; i <= frame; i++) { const x = (i / 99) * cw, y = ch - data[i] * ch * 0.7 - ch * 0.05; i === 0 ? c.moveTo(x, y) : c.lineTo(x, y); }
+            for (let i = 0; i <= frame; i++) { const x = (i / 99) * cw, y = yOf(data[i]); i === 0 ? c.moveTo(x, y) : c.lineTo(x, y); }
             c.stroke();
-            if (isA && frame > 0) { const ex = (frame / 99) * cw, ey = ch - data[frame] * ch * 0.7 - ch * 0.05; c.globalAlpha = 1; c.fillStyle = colors[mi]; c.beginPath(); c.arc(ex, ey, 3.5, 0, Math.PI * 2); c.fill(); }
+            if (isA && frame > 0) { const ex = (frame / 99) * cw, ey = yOf(data[frame]); c.globalAlpha = 1; c.fillStyle = colors[mi]; c.beginPath(); c.arc(ex, ey, 3.5, 0, Math.PI * 2); c.fill(); }
             c.globalAlpha = 1;
         });
-        c.fillStyle = '#9CA3AF'; c.font = '9px Inter'; c.textAlign = 'left'; c.fillText('Loss', 2, 10);
+        c.fillStyle = '#9CA3AF'; c.font = '9px Inter'; c.textAlign = 'left'; c.fillText('성능비 ×', 2, 10);
         c.textAlign = 'right'; c.fillText('Epoch ' + frame, cw - 2, ch - 4);
     }
 
@@ -1300,23 +1357,34 @@
             return `<div class="step-dot-wrap ${stateClass}" data-s="${i}"><div class="step-dot ${dotClass}">${i + 1}</div><span class="step-name">${name}</span></div>${line}`;
         }).join('');
 
+        const outageHtml = state.centralDown
+            ? `<div class="reroute-info" style="background:#FEF2F2; border-color:#FCA5A5; color:#991B1B;">
+                <strong>중앙 서버 장애 발생</strong><br>
+                모든 센서가 중앙으로 직접 연결되어 있어 데이터 수집, GNN 학습, 예측 배포가 동시에 중단됩니다.
+            </div>`
+            : '';
+
         return `<h2>🏛️ 중앙 GNN 학습</h2>
         <p class="desc">기존 센서 그래프는 그대로 두고, 각 센서의 값을 <strong>중앙 서버</strong>로 직접 모아 전체 그래프 GNN을 한 번에 학습합니다.</p>
         <div class="section-divider"></div>
         <div class="stat-row"><span class="stat-label">현재 Epoch</span><span class="round-badge" id="central-epoch-badge">${state.centralEpoch} / 60</span></div>
-        <div class="stat-row"><span class="stat-label">학습 위치</span><span class="stat-value" style="color:${C.central}">중앙 서버</span></div>
-        <div class="stat-row"><span class="stat-label">데이터 경로</span><span class="stat-value">센서 → 중앙</span></div>
+        <div class="stat-row"><span class="stat-label">학습 위치</span><span class="stat-value" style="color:${state.centralDown ? '#EF4444' : C.central}">${state.centralDown ? '중앙 서버 OFF' : '중앙 서버'}</span></div>
+        <div class="stat-row"><span class="stat-label">데이터 경로</span><span class="stat-value">${state.centralDown ? '센서 → 차단' : '센서 → 중앙'}</span></div>
         <div class="stat-row"><span class="stat-label">관측 센서</span><span class="stat-value">24 / 24개</span></div>
         <div class="stat-row"><span class="stat-label">그래프 구조</span><span class="stat-value">${EDGES.length}개 연결 유지</span></div>
+        ${outageHtml}
         <div class="step-track" id="central-step-track">${stepTrack}</div>
-        <div id="central-step-desc" class="desc" style="min-height:calc(45px * var(--ui-scale))">${CENTRAL_DESCS[state.centralStep]}</div>
+        <div id="central-step-desc" class="desc" style="min-height:calc(45px * var(--ui-scale))">${state.centralDown ? '중앙 서버가 단일 병목 지점이므로, 서버가 꺼지면 전체 센서 데이터가 도착하지 못하고 중앙 GNN 학습 파이프라인이 정지합니다.' : CENTRAL_DESCS[state.centralStep]}</div>
         <div class="section-divider"></div>
         <div class="controls-row">
-            <button class="ctrl-btn ${state.centralPlaying ? 'active' : ''}" id="central-play" title="재생">${state.centralPlaying ? '⏸' : '▶'}</button>
-            <button class="ctrl-btn" id="central-step-btn" title="다음 단계">⏭</button>
+            <button class="ctrl-btn ${state.centralPlaying ? 'active' : ''}" id="central-play" title="재생" ${state.centralDown ? 'disabled style="opacity:.45; cursor:not-allowed;"' : ''}>${state.centralPlaying ? '⏸' : '▶'}</button>
+            <button class="ctrl-btn" id="central-step-btn" title="다음 단계" ${state.centralDown ? 'disabled style="opacity:.45; cursor:not-allowed;"' : ''}>⏭</button>
             <button class="ctrl-btn" id="central-reset" title="초기화">↺</button>
             <div class="speed-slider"><span>속도</span><input type="range" id="central-speed" min="1" max="5" value="${state.centralSpeed}"></div>
         </div>
+        <button id="central-outage-toggle" style="width:100%; padding:calc(9px * var(--ui-scale)); border:1.5px solid ${state.centralDown ? '#EF4444' : 'var(--border)'}; border-radius:calc(8px * var(--ui-scale)); font-family:var(--font); font-size:calc(12px * var(--ui-scale)); font-weight:700; cursor:pointer; color:${state.centralDown ? '#B91C1C' : 'var(--text2)'}; background:${state.centralDown ? '#FEF2F2' : '#F3F4F6'};">
+            ${state.centralDown ? '중앙 서버 복구' : '중앙 서버 장애 보기'}
+        </button>
         <div class="section-divider"></div>
         <h3>중앙 집중 학습 특성</h3>
         <div class="stat-row"><span class="stat-label">장점</span><span class="stat-value">전역 문맥 최대 활용</span></div>
@@ -1324,9 +1392,9 @@
         <div class="section-divider"></div>
         <h3>교통량 추이 (실시간 Scrolling)</h3>
         <div class="chart-wrap"><canvas id="traffic-canvas" height="90"></canvas>
-            <div class="curve-legend"><div class="curve-legend-item"><div class="curve-legend-line" style="background:#3B82F6"></div>실제흐름</div><div class="curve-legend-item active"><div class="curve-legend-line" style="background:${C.central}"></div>중앙 GNN 예측</div></div>
+            <div class="curve-legend"><div class="curve-legend-item"><div class="curve-legend-line" style="background:#3B82F6"></div>실제흐름</div><div class="curve-legend-item active"><div class="curve-legend-line" style="background:${state.centralDown ? '#EF4444' : C.central}"></div>${state.centralDown ? '예측 중단' : '중앙 GNN 예측'}</div></div>
         </div>
-        <div class="hint">🧮 왼쪽 수식 패널의 버튼을 누르면 중앙 서버에서 GNN 연산이 수행되는 애니메이션을 볼 수 있습니다</div>`;
+        <div class="hint">${state.centralDown ? '⚠️ 복구 버튼을 누르면 중앙 서버가 다시 켜지고 학습 흐름을 재개할 수 있습니다' : '🧮 왼쪽 수식 패널의 버튼을 누르면 중앙 서버에서 GNN 연산이 수행되는 애니메이션을 볼 수 있습니다'}</div>`;
     }
 
     const FL_DESCS = [
@@ -1384,21 +1452,23 @@
         </div>
         <p class="desc" id="impute-desc">${IMPUTE_DESCS[m]}</p>
         <div class="section-divider"></div>
-        <h3>학습 손실 비교 (Loss)</h3>
+        <h3>논문 기반 성능비 (Single-node 대비)</h3>
         <div class="chart-wrap"><canvas id="loss-canvas" height="100"></canvas></div>
         <div class="curve-legend">
-            <div class="curve-legend-item ${m === 'zero' ? 'active' : ''}"><div class="curve-legend-line" style="background:#9CA3AF"></div>Zero-fill</div>
-            <div class="curve-legend-item ${m === 'neighbor' ? 'active' : ''}"><div class="curve-legend-line" style="background:#F59E0B"></div>이웃 평균</div>
-            <div class="curve-legend-item ${m === 'propagation' ? 'active' : ''}"><div class="curve-legend-line" style="background:#10B981"></div>특징 전파</div>
+            <div class="curve-legend-item ${m === 'zero' ? 'active' : ''}"><div class="curve-legend-line" style="background:#9CA3AF"></div>Zero ×1.81</div>
+            <div class="curve-legend-item ${m === 'neighbor' ? 'active' : ''}"><div class="curve-legend-line" style="background:#F59E0B"></div>Neighbor ×1.83</div>
+            <div class="curve-legend-item ${m === 'propagation' ? 'active' : ''}"><div class="curve-legend-line" style="background:#10B981"></div>FP ×1.24</div>
         </div>
+        <p class="desc">논문 Fig. 7의 평균 성능비 요약입니다. 값이 낮을수록 중앙/단일 노드 STGNN 성능에 더 가깝습니다.</p>
         <div class="section-divider"></div>
         <h3>방식별 성능 비교</h3>
         <table class="cmp-table">
-            <tr><th>방식</th><th>최종 Loss</th><th>MAAPE</th><th>수렴</th></tr>
-            <tr class="${m === 'zero' ? 'active-row' : ''}"><td class="method-name">Zero-fill</td><td>0.34</td><td>12.8%</td><td><span class="speed-bar"><span class="speed-block on"></span><span class="speed-block off"></span><span class="speed-block off"></span></span></td></tr>
-            <tr class="${m === 'neighbor' ? 'active-row' : ''}"><td class="method-name">이웃 평균</td><td>0.19</td><td>8.3%</td><td><span class="speed-bar"><span class="speed-block on"></span><span class="speed-block on"></span><span class="speed-block off"></span></span></td></tr>
-            <tr class="${m === 'propagation' ? 'active-row' : ''}"><td class="method-name">특징 전파</td><td>0.07</td><td>5.2%</td><td><span class="speed-bar"><span class="speed-block on"></span><span class="speed-block on"></span><span class="speed-block on"></span></span></td></tr>
+            <tr><th>방식</th><th>평균 성능비</th><th>우수 사례</th><th>전파 반복</th></tr>
+            <tr class="${m === 'zero' ? 'active-row' : ''}"><td class="method-name">Zero-fill</td><td>×1.81</td><td>23/78<br><span style="font-size:calc(9px * var(--ui-scale)); color:var(--text3);">29.5%</span></td><td>0회</td></tr>
+            <tr class="${m === 'neighbor' ? 'active-row' : ''}"><td class="method-name">이웃 평균</td><td>×1.83</td><td>9/78<br><span style="font-size:calc(9px * var(--ui-scale)); color:var(--text3);">11.5%</span></td><td>1회</td></tr>
+            <tr class="${m === 'propagation' ? 'active-row' : ''}"><td class="method-name">특징 전파</td><td>×1.24</td><td>46/78<br><span style="font-size:calc(9px * var(--ui-scale)); color:var(--text3);">59.0%</span></td><td>5~15회</td></tr>
         </table>
+        <p class="desc">우수 사례 수는 논문 Section 5.2의 78개 모델-데이터셋 조합 기준입니다. Zero-fill의 23/78은 그래프 기반 방식이 우수했던 55개를 제외한 값입니다.</p>
         <div class="section-divider"></div>
         <h3>교통량 추이 (실시간 Scrolling)</h3>
         <div class="chart-wrap"><canvas id="traffic-canvas" height="90"></canvas>
@@ -1440,12 +1510,21 @@
                 <div style="font-size:calc(26px * var(--ui-scale)); font-weight:800; color:#EF4444;">${latency}<span style="font-size:calc(14px * var(--ui-scale)); font-weight:600;">ms</span></div>
                 <div style="font-size:calc(12px * var(--ui-scale)); font-weight:600; color:#991B1B; margin-top:calc(4px * var(--ui-scale));">우회 통신 지연</div>
             </div>
-        </div>
-        <div class="hint">⚠️ 장애 시 우회하는 센서의 색상이 <b>해당 목적지 서버의 색</b>으로 변경되며 화살표가 표시됩니다.</div>`;
+        </div>`;
     }
 
     function renderCentralMathPanel(mp) {
         mp.classList.add('visible');
+
+        if (state.centralDown) {
+            mp.innerHTML = `<h2>🧮 중앙 GNN 연산 모델</h2>
+            <p class="desc">중앙 서버가 꺼져 있어 전체 특징 행렬 <strong>X<sub>all</sub></strong>을 구성할 수 없습니다.</p>
+            <div class="math-eq" style="color:#B91C1C; background:#FEF2F2; border-color:#FCA5A5;">X<sub>all</sub> 수집 실패 → GNN 연산 중단</div>
+            <div style="margin-top:calc(10px * var(--ui-scale)); font-size:calc(11.5px * var(--ui-scale)); line-height:1.5; color:#991B1B; background:#FEF2F2; padding:calc(10px * var(--ui-scale)); border:1px solid #FCA5A5; border-radius:calc(8px * var(--ui-scale));">
+                중앙 집중 구조에서는 서버 한 대가 전체 학습 파이프라인의 단일 장애점입니다. 복구 전까지 데이터 수집, GNN 업데이트, 예측 배포가 모두 멈춥니다.
+            </div>`;
+            return;
+        }
 
         if (state.centralAnimating) {
             mp.innerHTML = `<h2>🧮 중앙 GNN 연산 모델</h2>
@@ -1584,7 +1663,7 @@
     // ===== Mode switching =====
     function setMode(mode) {
         state.mode = mode;
-        if (mode === 'central') { state.centralPlaying = false; state.centralStep = 0; state.centralProgress = 0; state.centralEpoch = 1; state.centralAnimating = false; }
+        if (mode === 'central') { state.centralPlaying = false; state.centralStep = 0; state.centralProgress = 0; state.centralEpoch = 1; state.centralAnimating = false; state.centralDown = false; }
         if (mode === 'gnn') { state.waves = []; state.lossFrame = 0; }
         if (mode === 'resilience') { state.online = [true, true, true, true]; }
         if (mode === 'fl') { state.flPlaying = false; state.flStep = 0; state.flProgress = 0; state.flRound = 1; }
@@ -1610,9 +1689,9 @@
             '<div class="legend-item"><div class="legend-dot" style="background:#F59E0B"></div>서행</div>' +
             '<div class="legend-item"><div class="legend-dot" style="background:#EF4444"></div>정체</div>';
         if (state.mode === 'central') ex =
-            '<div class="legend-item"><div class="legend-dot" style="background:' + C.central + '"></div>중앙 서버</div>' +
-            '<div class="legend-item"><div class="legend-line" style="background:' + C.central + '"></div>센서 직접 전송</div>' +
-            '<div class="legend-item"><div class="legend-dot" style="background:#10B981"></div>GNN 예측 결과</div>';
+            '<div class="legend-item"><div class="legend-dot" style="background:' + (state.centralDown ? '#EF4444' : C.central) + '"></div>' + (state.centralDown ? '중앙 서버 장애' : '중앙 서버') + '</div>' +
+            '<div class="legend-item"><div class="legend-line" style="background:' + (state.centralDown ? '#EF4444' : C.central) + '"></div>' + (state.centralDown ? '전송 차단' : '센서 직접 전송') + '</div>' +
+            '<div class="legend-item"><div class="legend-dot" style="background:#10B981"></div>' + (state.centralDown ? '예측 중단' : 'GNN 예측 결과') + '</div>';
         if (state.mode === 'fl') ex =
             '<div class="legend-item"><div class="legend-dot" style="background:#0EA5E9"></div>중앙 서버</div>' +
             '<div class="legend-item"><div style="display:inline-block;width:10px;height:10px;background:#3B82F6;clip-path:polygon(50% 0%,100% 50%,50% 100%,0% 50%);margin-right:4px"></div>모델 파라미터◆</div>';
@@ -1630,9 +1709,18 @@
         const csb = document.getElementById('central-step-btn');
         if (csb) csb.addEventListener('click', () => { state.centralStep = (state.centralStep + 1) % 4; state.centralProgress = 0; if (state.centralStep === 0) state.centralEpoch = Math.min(60, state.centralEpoch + 1); updateCentralPanel(); });
         const crb = document.getElementById('central-reset');
-        if (crb) crb.addEventListener('click', () => { state.centralEpoch = 1; state.centralStep = 0; state.centralProgress = 0; state.centralPlaying = false; state.centralAnimating = false; const pb = document.getElementById('central-play'); if (pb) { pb.textContent = '▶'; pb.classList.remove('active'); } updateCentralPanel(); renderMathPanel(); });
+        if (crb) crb.addEventListener('click', () => { state.centralEpoch = 1; state.centralStep = 0; state.centralProgress = 0; state.centralPlaying = false; state.centralAnimating = false; state.centralDown = false; renderPanel(); updateLegend(); });
         const csi = document.getElementById('central-speed');
         if (csi) csi.addEventListener('input', () => { state.centralSpeed = parseInt(csi.value); });
+        const cob = document.getElementById('central-outage-toggle');
+        if (cob) cob.addEventListener('click', () => {
+            state.centralDown = !state.centralDown;
+            state.centralPlaying = false;
+            state.centralAnimating = false;
+            state.centralProgress = 0;
+            renderPanel();
+            updateLegend();
+        });
         const play = document.getElementById('fl-play');
         if (play) play.addEventListener('click', () => { state.flPlaying = !state.flPlaying; play.textContent = state.flPlaying ? '⏸' : '▶'; play.classList.toggle('active', state.flPlaying); });
         const sb = document.getElementById('fl-step-btn');
