@@ -98,7 +98,12 @@
     EDGES.forEach((_, i) => { for (let j = 0; j < 3; j++) edgeParticles.push({ edge: i, pos: Math.random(), dir: j % 2 === 0 ? 1 : -1 }); });
 
     // ===== State =====
-    const state = { mode: 'overview', flPlaying: false, flRound: 1, flStep: 0, flProgress: 0, flSpeed: 3, imputeMethod: 'zero', waves: [], lossFrame: 0, online: [true, true, true, true], gnnAnimating: false, gnnAnimStart: 0, graphScale: 1 };
+    const state = {
+        mode: 'overview',
+        centralPlaying: false, centralEpoch: 1, centralStep: 0, centralProgress: 0, centralSpeed: 3, centralAnimating: false, centralAnimStart: 0,
+        flPlaying: false, flRound: 1, flStep: 0, flProgress: 0, flSpeed: 3,
+        imputeMethod: 'zero', waves: [], lossFrame: 0, online: [true, true, true, true], gnnAnimating: false, gnnAnimStart: 0, graphScale: 1
+    };
 
     // ===== Map & Canvas =====
     let map, canvas, ctx;
@@ -133,10 +138,20 @@
         drawNodes(time, hour);
         drawServers(time);
 
+        if (state.mode === 'central') drawCentral(time); // raw values → central server, then centralized GNN
         if (state.mode === 'fl') drawFL(time);       // ◆ diamonds = model parameter packets
         if (state.mode === 'gnn') drawGNN(time);     // pulse rings = GNN message passing
         if (state.mode === 'resilience') drawResilience(time); // dashed lines = rerouting
 
+        if (state.centralPlaying && state.mode === 'central' && !state.centralAnimating) {
+            state.centralProgress += 0.004 * state.centralSpeed;
+            if (state.centralProgress >= 1) {
+                state.centralProgress = 0;
+                state.centralStep = (state.centralStep + 1) % 4;
+                if (state.centralStep === 0) state.centralEpoch = Math.min(60, state.centralEpoch + 1);
+                updateCentralPanel();
+            }
+        }
         if (state.flPlaying && state.mode === 'fl') {
             state.flProgress += 0.004 * state.flSpeed;
             if (state.flProgress >= 1) { state.flProgress = 0; state.flStep = (state.flStep + 1) % 5; if (state.flStep === 0) state.flRound = Math.min(100, state.flRound + 1); updateFLPanel(); }
@@ -149,7 +164,7 @@
 
     // ===== Draw edges =====
     function drawEdges(time, hour) {
-        if (state.mode === 'gnn' && state.gnnAnimating) return;
+        if ((state.mode === 'gnn' && state.gnnAnimating) || (state.mode === 'central' && state.centralAnimating)) return;
         const G = state.graphScale;
         EDGES.forEach(([a, b], ei) => {
             const pa = px(SENSORS[a]), pb = px(SENSORS[b]);
@@ -183,7 +198,7 @@
 
     // ===== Draw sensor nodes =====
     function drawNodes(time, hour) {
-        if (state.mode === 'gnn' && state.gnnAnimating) return;
+        if ((state.mode === 'gnn' && state.gnnAnimating) || (state.mode === 'central' && state.centralAnimating)) return;
         const G = state.graphScale;
 
         SENSORS.forEach((s, i) => {
@@ -238,7 +253,7 @@
         });
     }
 
-    // ===== Draw servers — ALWAYS visible on map =====
+    // ===== Draw servers =====
     function drawRoundRect(c, x, y, w, h, r) {
         c.beginPath(); c.moveTo(x + r, y); c.lineTo(x + w - r, y);
         c.quadraticCurveTo(x + w, y, x + w, y + r); c.lineTo(x + w, y + h - r);
@@ -250,46 +265,48 @@
     function drawServers(time) {
         ctx.save();
         const G = state.graphScale;
-        for (let ci = 0; ci < 4; ci++) {
-            const cc = clusterCenter(ci), p = pxLL(cc.lat, cc.lng);
-            const isOff = state.mode === 'resilience' && !state.online[ci];
-            const col = C.srv[ci];
-            const bgCol = isOff ? '#F3F4F6' : '#FFFFFF';
-            const strokeCol = isOff ? '#D1D5DB' : col;
+        if (state.mode !== 'central') {
+            for (let ci = 0; ci < 4; ci++) {
+                const cc = clusterCenter(ci), p = pxLL(cc.lat, cc.lng);
+                const isOff = state.mode === 'resilience' && !state.online[ci];
+                const col = C.srv[ci];
+                const bgCol = isOff ? '#F3F4F6' : '#FFFFFF';
+                const strokeCol = isOff ? '#D1D5DB' : col;
 
-            const w = 28 * G, h = 34 * G, r = 6 * G;
-            const sx = p.x - w / 2, sy = p.y - h / 2 - 4 * G;
+                const w = 28 * G, h = 34 * G, r = 6 * G;
+                const sx = p.x - w / 2, sy = p.y - h / 2 - 4 * G;
 
-            ctx.shadowColor = isOff ? 'transparent' : hexA(col, 0.3);
-            ctx.shadowBlur = 12 * G; ctx.shadowOffsetY = 4 * G;
-            drawRoundRect(ctx, sx, sy, w, h, r);
-            ctx.fillStyle = bgCol; ctx.fill();
+                ctx.shadowColor = isOff ? 'transparent' : hexA(col, 0.3);
+                ctx.shadowBlur = 12 * G; ctx.shadowOffsetY = 4 * G;
+                drawRoundRect(ctx, sx, sy, w, h, r);
+                ctx.fillStyle = bgCol; ctx.fill();
 
-            ctx.shadowColor = 'transparent';
-            ctx.strokeStyle = strokeCol; ctx.lineWidth = isOff ? 1.5 * G : 2 * G; ctx.stroke();
+                ctx.shadowColor = 'transparent';
+                ctx.strokeStyle = strokeCol; ctx.lineWidth = isOff ? 1.5 * G : 2 * G; ctx.stroke();
 
-            ctx.fillStyle = isOff ? '#E5E7EB' : hexA(col, 0.15);
-            drawRoundRect(ctx, sx + 5 * G, sy + 5 * G, w - 10 * G, 4 * G, 1.5 * G); ctx.fill();
-            drawRoundRect(ctx, sx + 5 * G, sy + 13 * G, w - 10 * G, 4 * G, 1.5 * G); ctx.fill();
-            drawRoundRect(ctx, sx + 5 * G, sy + 21 * G, w - 10 * G, 4 * G, 1.5 * G); ctx.fill();
+                ctx.fillStyle = isOff ? '#E5E7EB' : hexA(col, 0.15);
+                drawRoundRect(ctx, sx + 5 * G, sy + 5 * G, w - 10 * G, 4 * G, 1.5 * G); ctx.fill();
+                drawRoundRect(ctx, sx + 5 * G, sy + 13 * G, w - 10 * G, 4 * G, 1.5 * G); ctx.fill();
+                drawRoundRect(ctx, sx + 5 * G, sy + 21 * G, w - 10 * G, 4 * G, 1.5 * G); ctx.fill();
 
-            if (!isOff) {
-                const ledCol = (Math.sin(time * 0.005 + ci) > 0) ? '#10B981' : '#34D399';
-                ctx.fillStyle = ledCol;
-                ctx.beginPath(); ctx.arc(sx + w - 7 * G, sy + 7 * G, 1.5 * G, 0, Math.PI * 2); ctx.fill();
-            } else {
-                ctx.fillStyle = '#EF4444';
-                ctx.beginPath(); ctx.arc(sx + w - 7 * G, sy + 7 * G, 1.5 * G, 0, Math.PI * 2); ctx.fill();
-            }
+                if (!isOff) {
+                    const ledCol = (Math.sin(time * 0.005 + ci) > 0) ? '#10B981' : '#34D399';
+                    ctx.fillStyle = ledCol;
+                    ctx.beginPath(); ctx.arc(sx + w - 7 * G, sy + 7 * G, 1.5 * G, 0, Math.PI * 2); ctx.fill();
+                } else {
+                    ctx.fillStyle = '#EF4444';
+                    ctx.beginPath(); ctx.arc(sx + w - 7 * G, sy + 7 * G, 1.5 * G, 0, Math.PI * 2); ctx.fill();
+                }
 
-            ctx.fillStyle = isOff ? '#9CA3AF' : col;
-            ctx.font = `bold ${11 * G}px Inter`; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-            ctx.fillText(C.srvName[ci], p.x, sy + h + 6 * G);
+                ctx.fillStyle = isOff ? '#9CA3AF' : col;
+                ctx.font = `bold ${11 * G}px Inter`; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+                ctx.fillText(C.srvName[ci], p.x, sy + h + 6 * G);
 
-            if (isOff) {
-                ctx.strokeStyle = '#EF4444'; ctx.lineWidth = 2.5 * G;
-                ctx.beginPath(); ctx.moveTo(p.x - 8 * G, p.y - 8 * G); ctx.lineTo(p.x + 8 * G, p.y + 8 * G);
-                ctx.moveTo(p.x + 8 * G, p.y - 8 * G); ctx.lineTo(p.x - 8 * G, p.y + 8 * G); ctx.stroke();
+                if (isOff) {
+                    ctx.strokeStyle = '#EF4444'; ctx.lineWidth = 2.5 * G;
+                    ctx.beginPath(); ctx.moveTo(p.x - 8 * G, p.y - 8 * G); ctx.lineTo(p.x + 8 * G, p.y + 8 * G);
+                    ctx.moveTo(p.x + 8 * G, p.y - 8 * G); ctx.lineTo(p.x - 8 * G, p.y + 8 * G); ctx.stroke();
+                }
             }
         }
 
@@ -397,6 +414,176 @@
                 }
             });
         }
+    }
+
+    // ===== Centralized GNN overlay =====
+    // Raw values are gathered at the central server before a single full-graph GNN update.
+    function drawCentral(time) {
+        if (state.centralAnimating) {
+            drawCentralGNNAnimation(time);
+            return;
+        }
+
+        const step = state.centralStep;
+        const prog = state.centralProgress;
+        const cp = pxLL(CENTRAL_POS.lat, CENTRAL_POS.lng);
+
+        drawCentralChannels(time);
+        drawCentralHubGlow(time, step === 2 ? 1 : 0.55);
+
+        if (step === 0) drawCentralSensorCollection(prog);
+        else if (step === 1) drawCentralMatrixAssembly(time, prog);
+        else if (step === 2) drawCentralGNNCompute(time, 1);
+        else if (step === 3) drawCentralPredictionBroadcast(time, prog);
+
+        if (step !== 2) drawCentralGNNCompute(time, 0.25);
+
+        ctx.save();
+        ctx.fillStyle = C.central;
+        ctx.font = 'bold 11px Inter';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText('중앙 GNN 학습 허브', cp.x, cp.y - 28);
+        ctx.restore();
+    }
+
+    function drawCentralChannels(time) {
+        const cp = pxLL(CENTRAL_POS.lat, CENTRAL_POS.lng);
+        ctx.save();
+        SENSORS.forEach((s, i) => {
+            const sp = px(s);
+            const pulse = Math.sin(time * 0.002 + i * 0.35) * 0.03 + 0.07;
+            ctx.strokeStyle = hexA(C.central, pulse);
+            ctx.lineWidth = 1;
+            ctx.setLineDash([6, 6]);
+            ctx.beginPath(); ctx.moveTo(sp.x, sp.y); ctx.lineTo(cp.x, cp.y); ctx.stroke();
+        });
+        ctx.setLineDash([]);
+        ctx.restore();
+    }
+
+    function drawCentralHubGlow(time, strength) {
+        const cp = pxLL(CENTRAL_POS.lat, CENTRAL_POS.lng);
+        const pulse = Math.sin(time * 0.004) * 0.18 + 0.82;
+        const g = ctx.createRadialGradient(cp.x, cp.y, 0, cp.x, cp.y, 58 * state.graphScale);
+        g.addColorStop(0, hexA(C.central, 0.25 * strength * pulse));
+        g.addColorStop(1, hexA(C.central, 0));
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(cp.x, cp.y, 58 * state.graphScale, 0, Math.PI * 2); ctx.fill();
+    }
+
+    function drawCentralSensorCollection(prog) {
+        const cp = pxLL(CENTRAL_POS.lat, CENTRAL_POS.lng);
+        SENSORS.forEach(s => {
+            const from = px(s);
+            const p = prog * 1.25 - (s.id % 8) * 0.045;
+            if (p >= 0 && p <= 1.08) drawDataPacket(from, cp, clamp(p, 0, 1), C.srv[s.cluster], 2.8);
+        });
+    }
+
+    function drawCentralMatrixAssembly(time, prog) {
+        const cp = pxLL(CENTRAL_POS.lat, CENTRAL_POS.lng);
+        const G = state.graphScale;
+        ctx.save();
+        SENSORS.forEach((s, i) => {
+            const angle = (i / SENSORS.length) * Math.PI * 2 + time * 0.002;
+            const radius = lerp(48 * G, 16 * G, clamp(prog, 0, 1));
+            const x = cp.x + Math.cos(angle) * radius;
+            const y = cp.y + Math.sin(angle) * radius;
+            const alpha = 0.2 + 0.65 * clamp(prog, 0, 1);
+            ctx.fillStyle = hexA(C.srv[s.cluster], alpha);
+            ctx.beginPath(); ctx.arc(x, y, 2.8 * G, 0, Math.PI * 2); ctx.fill();
+        });
+
+        const boxW = 46 * G, boxH = 28 * G;
+        ctx.globalAlpha = clamp(prog * 1.5, 0, 1);
+        ctx.fillStyle = 'rgba(255,255,255,0.92)';
+        drawRoundRect(ctx, cp.x - boxW / 2, cp.y - 64 * G, boxW, boxH, 7 * G); ctx.fill();
+        ctx.strokeStyle = C.central; ctx.lineWidth = 1.5 * G; ctx.stroke();
+        ctx.fillStyle = C.central;
+        ctx.font = `bold ${10 * G}px Inter`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('X_all', cp.x, cp.y - 50 * G);
+        ctx.globalAlpha = 1;
+        ctx.restore();
+    }
+
+    function drawCentralGNNCompute(time, intensity) {
+        const cp = pxLL(CENTRAL_POS.lat, CENTRAL_POS.lng);
+        const G = state.graphScale;
+        ctx.save();
+        const pulse = Math.sin(time * 0.006) * 0.5 + 0.5;
+        const glow = ctx.createRadialGradient(cp.x, cp.y, 0, cp.x, cp.y, 46 * G);
+        glow.addColorStop(0, hexA(C.central, (0.12 + pulse * 0.18) * intensity));
+        glow.addColorStop(1, hexA(C.central, 0));
+        ctx.fillStyle = glow;
+        ctx.beginPath(); ctx.arc(cp.x, cp.y, 46 * G, 0, Math.PI * 2); ctx.fill();
+
+        const p2 = (time * 0.0035) % (Math.PI * 2);
+        const gx = cp.x, gy = cp.y - 48 * G;
+        const r = 11 * G;
+        ctx.fillStyle = C.central;
+        ctx.font = `bold ${10 * G}px Inter`;
+        ctx.textAlign = 'center';
+        ctx.fillText('GNN', gx, gy - 16 * G);
+
+        for (let i = 0; i < 4; i++) {
+            const a1 = p2 + i * (Math.PI * 2 / 4);
+            const a2 = p2 + ((i + 1) % 4) * (Math.PI * 2 / 4);
+            ctx.strokeStyle = hexA(C.central, 0.35 + 0.45 * intensity);
+            ctx.lineWidth = 1.5 * G;
+            ctx.beginPath();
+            ctx.moveTo(gx + Math.cos(a1) * r, gy + Math.sin(a1) * r);
+            ctx.lineTo(gx + Math.cos(a2) * r, gy + Math.sin(a2) * r);
+            ctx.stroke();
+            ctx.fillStyle = i % 2 === 0 ? C.central : '#10B981';
+            ctx.beginPath(); ctx.arc(gx + Math.cos(a1) * r, gy + Math.sin(a1) * r, 2.6 * G, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.restore();
+    }
+
+    function drawCentralPredictionBroadcast(time, prog) {
+        const cp = pxLL(CENTRAL_POS.lat, CENTRAL_POS.lng);
+        SENSORS.forEach(s => {
+            const sp = px(s);
+            const p = prog * 1.25 - (s.id % 8) * 0.045;
+            if (p >= 0 && p <= 1.08) drawDataPacket(cp, sp, clamp(p, 0, 1), C.central, 2.5);
+        });
+
+        const hour = getSimHour(time);
+        const edgeAlpha = 0.25 + 0.55 * prog;
+        ctx.save();
+        EDGES.forEach(([a, b], ei) => {
+            const pa = px(SENSORS[a]), pb = px(SENSORS[b]);
+            const col = trafficColor(trafficSpeed(hour, ei));
+            ctx.strokeStyle = hexA(col, edgeAlpha);
+            ctx.lineWidth = 2.5 * state.graphScale;
+            ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke();
+
+            const p = (time * 0.0008 + ei * 0.11) % 1;
+            ctx.fillStyle = `rgba(255,255,255,${Math.min(0.8, edgeAlpha)})`;
+            ctx.beginPath(); ctx.arc(lerp(pa.x, pb.x, p), lerp(pa.y, pb.y, p), 2.1 * state.graphScale, 0, Math.PI * 2); ctx.fill();
+        });
+        ctx.restore();
+    }
+
+    function drawDataPacket(from, to, prog, color, radius) {
+        const x = lerp(from.x, to.x, prog);
+        const y = lerp(from.y, to.y, prog);
+        const fade = Math.sin(clamp(prog, 0, 1) * Math.PI);
+        const r = radius * state.graphScale;
+
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r * 3);
+        g.addColorStop(0, hexA(color, 0.35 * fade));
+        g.addColorStop(1, hexA(color, 0));
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(x, y, r * 3, 0, Math.PI * 2); ctx.fill();
+
+        ctx.fillStyle = hexA(color, 0.35 + 0.65 * fade);
+        ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = `rgba(255,255,255,${0.75 * fade})`;
+        ctx.beginPath(); ctx.arc(x - r * 0.25, y - r * 0.25, r * 0.32, 0, Math.PI * 2); ctx.fill();
     }
 
     // ◆ Diamond = model parameter packet (NOT a vehicle/traffic circle)
@@ -723,8 +910,222 @@
                 // Animated traffic glow particles on the prediction edges
                 if (outTrafficAlpha > 0.2) {
                     const pg = ((time * 0.0006) + ei * 0.1) % 1;
-                    ctx.fillStyle = hexA('white', outTrafficAlpha * 0.8);
+                    ctx.fillStyle = `rgba(255,255,255,${outTrafficAlpha * 0.8})`;
                     ctx.beginPath(); ctx.arc(lerp(pa.x, pb.x, pg), lerp(pa.y, pb.y, pg), 2.0, 0, Math.PI * 2); ctx.fill();
+                }
+            });
+        }
+
+        ctx.restore();
+    }
+
+    // ===== Centralized GNN operation animation =====
+    function drawCentralGNNAnimation(time) {
+        const animEnd = 12000;
+        const cycle = 15000;
+        const elapsed = time - state.centralAnimStart;
+        if (elapsed > cycle) {
+            state.centralAnimating = false;
+            renderMathPanel();
+            return;
+        }
+        const t = Math.min(elapsed / animEnd, 1.0);
+
+        const S = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ui-scale')) || 1;
+        const panel = document.getElementById('math-panel');
+        let hudX = 176 * S, hudY = 320 * S;
+        if (panel) {
+            const rect = panel.getBoundingClientRect();
+            hudX = rect.left + rect.width / 2;
+            const visibleTop = Math.max(rect.top, 0);
+            const visibleBottom = Math.min(rect.bottom, window.innerHeight);
+            hudY = (visibleTop + visibleBottom) / 2;
+        }
+
+        const cp = pxLL(CENTRAL_POS.lat, CENTRAL_POS.lng);
+
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        const dpr = devicePixelRatio || 1;
+        ctx.scale(dpr, dpr);
+
+        const matA_X = hudX - 85 * S;
+        const matX_X = hudX - 20 * S;
+        const nnBox_X = hudX + 50 * S;
+        const h_X = nnBox_X + 65 * S;
+        const matY_start = hudY - 70 * S;
+        const nodeSpacing = 6 * S;
+        const matHeight = 24 * nodeSpacing;
+
+        const p_collect = clamp((t - 0.02) / 0.16, 0, 1);
+        const p_flyOut = clamp((t - 0.22) / 0.15, 0, 1);
+        const p_eqForm = clamp((t - 0.30) / 0.12, 0, 1);
+        const p_insert = clamp((t - 0.46) / 0.14, 0, 1);
+        const p_compute = clamp((t - 0.60) / 0.15, 0, 1);
+        const p_shoot = clamp((t - 0.76) / 0.10, 0, 1);
+        const p_flyBack = clamp((t - 0.86) / 0.14, 0, 1);
+
+        const easeOut = x => 1 - Math.pow(1 - x, 4);
+        const easeInOut = x => x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+        const easeIn = x => Math.pow(x, 4);
+
+        const e_collect = easeInOut(p_collect);
+        const e_flyOut = easeOut(p_flyOut);
+        const e_insert = easeInOut(p_insert);
+        const e_flyBack = easeIn(p_flyBack);
+
+        const positions = SENSORS.map((s, i) => {
+            const origin = px(s);
+            const targetX = matX_X;
+            const targetY = matY_start + i * nodeSpacing;
+            let cX = lerp(origin.x, cp.x, e_collect);
+            let cY = lerp(origin.y, cp.y, e_collect);
+
+            cX = lerp(cX, targetX, e_flyOut);
+            cY = lerp(cY, targetY, e_flyOut);
+            cX = lerp(cX, nnBox_X, e_insert);
+
+            const e_shoot_curve = 1 - Math.pow(1 - p_shoot, 4);
+            cX = lerp(cX, h_X, e_shoot_curve);
+            cX = lerp(cX, origin.x, e_flyBack);
+            cY = lerp(cY, origin.y, e_flyBack);
+
+            return { x: cX, y: cY };
+        });
+
+        const hubPulse = Math.sin(time * 0.006) * 0.2 + 0.8;
+        const hubAlpha = Math.max(0, 1 - p_flyOut) * Math.max(0.25, p_collect);
+        if (hubAlpha > 0) {
+            const g = ctx.createRadialGradient(cp.x, cp.y, 0, cp.x, cp.y, 70 * S);
+            g.addColorStop(0, hexA(C.central, 0.28 * hubAlpha * hubPulse));
+            g.addColorStop(1, hexA(C.central, 0));
+            ctx.fillStyle = g;
+            ctx.beginPath(); ctx.arc(cp.x, cp.y, 70 * S, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = hexA(C.central, 0.85 * hubAlpha);
+            ctx.font = `bold ${12 * S}px Inter`;
+            ctx.textAlign = 'center';
+            ctx.fillText('X_all', cp.x, cp.y - 44 * S);
+        }
+
+        if (p_collect > 0 && p_flyOut < 0.35) {
+            SENSORS.forEach((s, i) => {
+                const origin = px(s);
+                const p = p_collect * 1.12 - (i % 8) * 0.035;
+                if (p >= 0 && p <= 1.04) drawDataPacket(origin, cp, clamp(p, 0, 1), C.srv[s.cluster], 2.2);
+            });
+        }
+
+        const edgeAlpha = Math.min(1.0, Math.max(0, 1 - p_flyOut * 1.5) + p_flyBack);
+        if (edgeAlpha > 0) {
+            ctx.lineWidth = 1.5;
+            EDGES.forEach(([a, b]) => {
+                ctx.strokeStyle = `rgba(100,116,139,${edgeAlpha * 0.35})`;
+                ctx.beginPath(); ctx.moveTo(positions[a].x, positions[a].y); ctx.lineTo(positions[b].x, positions[b].y); ctx.stroke();
+            });
+        }
+
+        const matOp = p_eqForm * (1 - p_insert);
+        if (matOp > 0) {
+            const aOff = lerp(0, nnBox_X - matA_X - 5 * S, e_insert);
+            const aX = matA_X + aOff;
+            ctx.globalAlpha = matOp;
+            ctx.strokeStyle = '#6B7280'; ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.moveTo(aX - 25 * S, matY_start - 3 * S); ctx.lineTo(aX - 28 * S, matY_start - 3 * S); ctx.lineTo(aX - 28 * S, matY_start + matHeight + 1 * S); ctx.lineTo(aX - 25 * S, matY_start + matHeight + 1 * S); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(aX + 25 * S, matY_start - 3 * S); ctx.lineTo(aX + 28 * S, matY_start - 3 * S); ctx.lineTo(aX + 28 * S, matY_start + matHeight + 1 * S); ctx.lineTo(aX + 25 * S, matY_start + matHeight + 1 * S); ctx.stroke();
+            ctx.fillStyle = '#6B7280'; ctx.font = `bold ${12 * S}px Inter`; ctx.textAlign = 'center'; ctx.fillText('Ã', aX, matY_start - 12 * S);
+            ctx.font = `bold ${15 * S}px Inter`; ctx.fillText('×', aX + 37 * S, hudY);
+            for (let r = 0; r < 24; r++) {
+                for (let c = 0; c < 24; c++) {
+                    const isEdge = ADJ[r].includes(c) || r === c;
+                    ctx.fillStyle = isEdge ? '#374151' : '#E5E7EB';
+                    ctx.fillRect((aX - 23 * S + c * 2 * S) | 0, (matY_start + r * nodeSpacing) | 0, 1.5 * S, 1.5 * S);
+                }
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        const xOp = p_flyOut * (1 - p_insert);
+        if (xOp > 0) {
+            const xOff = lerp(0, nnBox_X - matX_X - 5 * S, e_insert);
+            const xx = matX_X + xOff;
+            ctx.globalAlpha = xOp;
+            ctx.strokeStyle = '#6B7280'; ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.moveTo(xx - 8 * S, matY_start - 3 * S); ctx.lineTo(xx - 11 * S, matY_start - 3 * S); ctx.lineTo(xx - 11 * S, matY_start + matHeight + 1 * S); ctx.lineTo(xx - 8 * S, matY_start + matHeight + 1 * S); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(xx + 8 * S, matY_start - 3 * S); ctx.lineTo(xx + 11 * S, matY_start - 3 * S); ctx.lineTo(xx + 11 * S, matY_start + matHeight + 1 * S); ctx.lineTo(xx + 8 * S, matY_start + matHeight + 1 * S); ctx.stroke();
+            ctx.fillStyle = '#6B7280'; ctx.font = `bold ${12 * S}px Inter`; ctx.textAlign = 'center'; ctx.fillText('X', xx, matY_start - 12 * S);
+            ctx.globalAlpha = 1;
+        }
+
+        ctx.globalAlpha = p_insert * (1 - e_flyBack);
+        if (ctx.globalAlpha > 0) {
+            ctx.fillStyle = '#1E293B';
+            drawRoundRect(ctx, nnBox_X - 35 * S, hudY - 70 * S, 70 * S, 140 * S, 8 * S); ctx.fill();
+            ctx.fillStyle = 'white'; ctx.font = `bold ${14 * S}px Inter`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText('Central', nnBox_X, hudY - 18 * S);
+            ctx.fillText('GNN', nnBox_X, hudY + 8 * S);
+
+            if (p_compute > 0 && p_compute < 1) {
+                const pulse = Math.sin(p_compute * Math.PI * 7) * 0.5 + 0.5;
+                ctx.strokeStyle = hexA(C.central, pulse);
+                ctx.lineWidth = 4;
+                drawRoundRect(ctx, nnBox_X - 37 * S, hudY - 72 * S, 74 * S, 144 * S, 10 * S); ctx.stroke();
+            }
+        }
+        ctx.globalAlpha = 1;
+
+        if (p_shoot > 0 && p_flyBack < 1) {
+            const hX = h_X;
+            ctx.globalAlpha = p_shoot * (1 - p_flyBack);
+            ctx.strokeStyle = '#10B981'; ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.moveTo(hX - 8 * S, matY_start - 3 * S); ctx.lineTo(hX - 11 * S, matY_start - 3 * S); ctx.lineTo(hX - 11 * S, matY_start + matHeight + 1 * S); ctx.lineTo(hX - 8 * S, matY_start + matHeight + 1 * S); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(hX + 8 * S, matY_start - 3 * S); ctx.lineTo(hX + 11 * S, matY_start - 3 * S); ctx.lineTo(hX + 11 * S, matY_start + matHeight + 1 * S); ctx.lineTo(hX + 8 * S, matY_start + matHeight + 1 * S); ctx.stroke();
+            ctx.fillStyle = '#10B981'; ctx.font = `bold ${12 * S}px Inter`; ctx.textAlign = 'center'; ctx.fillText('H', hX, matY_start - 12 * S);
+            ctx.globalAlpha = 1;
+        }
+
+        positions.forEach((p, i) => {
+            let nodeAlpha = 1;
+            if (p_insert > 0 && p_shoot === 0) nodeAlpha = 1 - e_insert;
+
+            let col = C.srv[SENSORS[i].cluster];
+            if (p_shoot > 0) col = p_flyBack > 0.95 ? C.srv[SENSORS[i].cluster] : '#10B981';
+
+            const scale = p_collect === 0 ? 1 : lerp(1, 0.55, e_collect);
+            const matrixScale = p_flyOut > 0 ? lerp(scale, 0.35, e_flyOut) : scale;
+            const finalScale = p_shoot > 0 ? lerp(0.35, 1.0, e_flyBack) : matrixScale;
+
+            ctx.globalAlpha = nodeAlpha;
+            if (finalScale > 0.8) {
+                const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 14 * S);
+                g.addColorStop(0, hexA(col, 0.3)); g.addColorStop(1, hexA(col, 0));
+                ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, 14 * S, 0, Math.PI * 2); ctx.fill();
+            }
+
+            ctx.fillStyle = col;
+            ctx.beginPath(); ctx.arc(p.x, p.y, 7 * S * finalScale, 0, Math.PI * 2); ctx.fill();
+            if (finalScale > 0.3) {
+                ctx.fillStyle = 'white';
+                ctx.beginPath(); ctx.arc(p.x, p.y, 4 * S * finalScale, 0, Math.PI * 2); ctx.fill();
+            }
+        });
+        ctx.globalAlpha = 1;
+
+        let outTrafficAlpha = p_flyBack;
+        if (elapsed > cycle - 1500) outTrafficAlpha *= Math.max(0, (cycle - elapsed) / 1500);
+
+        if (outTrafficAlpha > 0) {
+            const simHour = getSimHour(time);
+            ctx.lineWidth = 2.5 * S;
+            EDGES.forEach(([a, b], ei) => {
+                const pa = px(SENSORS[a]), pb = px(SENSORS[b]);
+                const edgeC = trafficColor(trafficSpeed(simHour, ei));
+                ctx.strokeStyle = hexA(edgeC, outTrafficAlpha * 0.85);
+                ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke();
+
+                if (outTrafficAlpha > 0.2) {
+                    const pg = ((time * 0.0007) + ei * 0.1) % 1;
+                    ctx.fillStyle = `rgba(255,255,255,${outTrafficAlpha * 0.8})`;
+                    ctx.beginPath(); ctx.arc(lerp(pa.x, pb.x, pg), lerp(pa.y, pb.y, pg), 2.0 * S, 0, Math.PI * 2); ctx.fill();
                 }
             });
         }
@@ -774,15 +1175,15 @@
         const cw = cvs.parentElement.clientWidth - 24, ch = 90, dpr = devicePixelRatio || 1;
         cvs.width = cw * dpr; cvs.height = ch * dpr; cvs.style.width = cw + 'px'; cvs.style.height = ch + 'px';
         const c = cvs.getContext('2d'); c.scale(dpr, dpr); c.clearRect(0, 0, cw, ch);
-        const m = state.mode === 'gnn' ? state.imputeMethod : 'propagation';
+        const m = state.mode === 'gnn' ? state.imputeMethod : state.mode === 'central' ? 'central' : 'propagation';
         const hour = getSimHour(time);
 
         c.strokeStyle = '#F3F4F6'; c.lineWidth = 1;
         [0.25, 0.5, 0.75].forEach(r => { c.beginPath(); c.moveTo(0, ch * r); c.lineTo(cw, ch * r); c.stroke(); });
 
         const points = [];
-        const err_scale = { zero: 28, neighbor: 12, propagation: 7 }[m] || 7;
-        let col = { zero: '#9CA3AF', neighbor: '#F59E0B', propagation: '#10B981' }[m] || '#10B981';
+        const err_scale = { zero: 28, neighbor: 12, propagation: 7, central: 3.5 }[m] || 7;
+        let col = { zero: '#9CA3AF', neighbor: '#F59E0B', propagation: '#10B981', central: C.central }[m] || '#10B981';
         if (state.mode === 'overview') col = '#EF4444'; // Overview legend matches RED
 
         // Window: T - 6.5 hours to T + 1.5 hours
@@ -793,7 +1194,7 @@
 
             // Generate smooth realistic noise per method (lowered frequency to prevent aliasing wiggle)
             const noise = (Math.sin(hWrapped * 4.3 + m.length) * Math.cos(hWrapped * 6.8)) * err_scale;
-            let bias = { zero: 14, neighbor: 4, propagation: 0.5 }[m];
+            let bias = { zero: 14, neighbor: 4, propagation: 0.5, central: 0.2 }[m];
             // Zero-fill is terribly biased during free flow
             if (m === 'zero') bias += (actual - 20) * 0.45;
 
@@ -861,7 +1262,7 @@
 
     setInterval(() => {
         const time = performance.now();
-        if (state.mode === 'overview' || state.mode === 'gnn' || state.mode === 'resilience') drawTrafficChart(time);
+        if (state.mode === 'overview' || state.mode === 'central' || state.mode === 'gnn' || state.mode === 'resilience') drawTrafficChart(time);
         if (state.mode === 'gnn') drawLossChart();
     }, 100);
 
@@ -881,6 +1282,51 @@
             <div class="curve-legend"><div class="curve-legend-item"><div class="curve-legend-line" style="background:#3B82F6"></div>실제흐름</div><div class="curve-legend-item"><div class="curve-legend-line" style="background:#EF4444"></div>모델 예측</div></div>
         </div>
         <div class="hint">💡 상단 모드 버튼으로 각 단계를 탐색해 보세요</div>`;
+    }
+
+    const CENTRAL_DESCS = [
+        '모든 센서가 현재 교통량 특징값을 중앙 서버로 바로 전송합니다. 그래프 구조와 센서 배치는 기존 지도를 그대로 사용합니다.',
+        '중앙 서버가 수신한 24개 센서 값을 하나의 전체 특징 행렬 X_all로 정렬합니다.',
+        '중앙 서버에서 전체 인접행렬 Ã와 전체 특징행렬 X를 이용해 GNN 메시지 패싱 및 가중치 업데이트를 수행합니다.',
+        '학습된 중앙 모델이 예측 결과를 센서와 지도 위 교통 링크로 직접 투영합니다.',
+    ];
+
+    function getCentralPanel() {
+        const stepLabels = ['직접수집', '특징행렬', 'GNN연산', '예측투영'];
+        const stepTrack = stepLabels.map((name, i) => {
+            const stateClass = i === state.centralStep ? 'active' : i < state.centralStep ? 'done' : '';
+            const dotClass = stateClass;
+            const line = i < stepLabels.length - 1 ? '<div class="step-line"></div>' : '';
+            return `<div class="step-dot-wrap ${stateClass}" data-s="${i}"><div class="step-dot ${dotClass}">${i + 1}</div><span class="step-name">${name}</span></div>${line}`;
+        }).join('');
+
+        return `<h2>🏛️ 중앙 GNN 학습</h2>
+        <p class="desc">기존 센서 그래프는 그대로 두고, 각 센서의 값을 <strong>중앙 서버</strong>로 직접 모아 전체 그래프 GNN을 한 번에 학습합니다.</p>
+        <div class="section-divider"></div>
+        <div class="stat-row"><span class="stat-label">현재 Epoch</span><span class="round-badge" id="central-epoch-badge">${state.centralEpoch} / 60</span></div>
+        <div class="stat-row"><span class="stat-label">학습 위치</span><span class="stat-value" style="color:${C.central}">중앙 서버</span></div>
+        <div class="stat-row"><span class="stat-label">데이터 경로</span><span class="stat-value">센서 → 중앙</span></div>
+        <div class="stat-row"><span class="stat-label">관측 센서</span><span class="stat-value">24 / 24개</span></div>
+        <div class="stat-row"><span class="stat-label">그래프 구조</span><span class="stat-value">${EDGES.length}개 연결 유지</span></div>
+        <div class="step-track" id="central-step-track">${stepTrack}</div>
+        <div id="central-step-desc" class="desc" style="min-height:calc(45px * var(--ui-scale))">${CENTRAL_DESCS[state.centralStep]}</div>
+        <div class="section-divider"></div>
+        <div class="controls-row">
+            <button class="ctrl-btn ${state.centralPlaying ? 'active' : ''}" id="central-play" title="재생">${state.centralPlaying ? '⏸' : '▶'}</button>
+            <button class="ctrl-btn" id="central-step-btn" title="다음 단계">⏭</button>
+            <button class="ctrl-btn" id="central-reset" title="초기화">↺</button>
+            <div class="speed-slider"><span>속도</span><input type="range" id="central-speed" min="1" max="5" value="${state.centralSpeed}"></div>
+        </div>
+        <div class="section-divider"></div>
+        <h3>중앙 집중 학습 특성</h3>
+        <div class="stat-row"><span class="stat-label">장점</span><span class="stat-value">전역 문맥 최대 활용</span></div>
+        <div class="stat-row"><span class="stat-label">주의점</span><span class="stat-value">데이터 집중/단일 장애점</span></div>
+        <div class="section-divider"></div>
+        <h3>교통량 추이 (실시간 Scrolling)</h3>
+        <div class="chart-wrap"><canvas id="traffic-canvas" height="90"></canvas>
+            <div class="curve-legend"><div class="curve-legend-item"><div class="curve-legend-line" style="background:#3B82F6"></div>실제흐름</div><div class="curve-legend-item active"><div class="curve-legend-line" style="background:${C.central}"></div>중앙 GNN 예측</div></div>
+        </div>
+        <div class="hint">🧮 왼쪽 수식 패널의 버튼을 누르면 중앙 서버에서 GNN 연산이 수행되는 애니메이션을 볼 수 있습니다</div>`;
     }
 
     const FL_DESCS = [
@@ -998,9 +1444,73 @@
         <div class="hint">⚠️ 장애 시 우회하는 센서의 색상이 <b>해당 목적지 서버의 색</b>으로 변경되며 화살표가 표시됩니다.</div>`;
     }
 
+    function renderCentralMathPanel(mp) {
+        mp.classList.add('visible');
+
+        if (state.centralAnimating) {
+            mp.innerHTML = `<h2>🧮 중앙 GNN 연산 모델</h2>
+            <p class="desc" style="margin-bottom: calc(270px * var(--ui-scale));">전체 센서값이 중앙 서버에 집계된 뒤, 하나의 특징 행렬 <strong>X<sub>all</sub></strong>로 재배열되어 GNN Layer를 통과합니다.</p>
+            <div style="font-size:calc(11.5px * var(--ui-scale)); line-height:1.5; color:var(--text2); background:#F3F4F6; padding:calc(10px * var(--ui-scale)); border-radius:calc(8px * var(--ui-scale));">
+                원본 그래프의 모든 노드가 중앙 허브로 모이고, <strong>Ã × X<sub>all</sub> × W</strong> 연산을 거쳐 업데이트된 임베딩 <strong>H</strong>가 다시 지도 위 예측 링크로 투영됩니다.
+            </div>`;
+            return;
+        }
+
+        const centralCells = [
+            { bg: C.srv[0], t: '95' },
+            { bg: C.srv[1], t: '82' },
+            { bg: C.srv[2], t: '74' },
+            { bg: C.srv[3], t: '88' },
+        ].map(v => `<div class="mat-cell" style="background:${v.bg}">${v.t}</div>`).join('');
+
+        mp.innerHTML = `<h2>🧮 중앙 GNN 연산 모델</h2>
+        <p class="desc">중앙 서버는 센서에서 직접 받은 전체 특징을 <span style="font-family:monospace; font-weight:bold;">X<sub>all</sub></span>로 구성합니다.</p>
+        <div class="math-eq">H<sup>(l+1)</sup> = σ( Ã · X<sub>all</sub><sup>(l)</sup> · W )</div>
+        <div class="matrix-container">
+            <div style="text-align:center;">
+                <div style="font-size:calc(11px * var(--ui-scale)); color:#6B7280; font-weight:bold; margin-bottom:calc(2px * var(--ui-scale));">Ã (동일 그래프)</div>
+                <div class="matrix" style="grid-template-columns: repeat(4, calc(14px * var(--ui-scale)));">
+                    <div class="mat-cell gray">1</div><div class="mat-cell gray">1</div><div class="mat-cell gray">0</div><div class="mat-cell gray">1</div>
+                    <div class="mat-cell gray">1</div><div class="mat-cell gray">1</div><div class="mat-cell gray">1</div><div class="mat-cell gray">0</div>
+                    <div class="mat-cell gray">0</div><div class="mat-cell gray">1</div><div class="mat-cell gray">1</div><div class="mat-cell gray">1</div>
+                    <div class="mat-cell gray">1</div><div class="mat-cell gray">0</div><div class="mat-cell gray">1</div><div class="mat-cell gray">1</div>
+                </div>
+            </div>
+            <div style="font-size:calc(16px * var(--ui-scale)); font-weight:bold; color:var(--text2);">×</div>
+            <div style="text-align:center;">
+                <div style="font-size:calc(11px * var(--ui-scale)); color:#6B7280; font-weight:bold; margin-bottom:calc(2px * var(--ui-scale));">X<sub>all</sub> (전체 특징)</div>
+                <div class="matrix" style="grid-template-columns: calc(14px * var(--ui-scale));">${centralCells}</div>
+            </div>
+            <div style="font-size:calc(16px * var(--ui-scale)); font-weight:bold; color:var(--text2);">⇒</div>
+            <div class="nn-block">
+                <div class="pulse"></div>
+                <span>Central</span>
+                <span>GNN</span>
+            </div>
+        </div>
+        <button id="btn-run-central-gnn" style="margin-top:calc(15px * var(--ui-scale)); width:100%; padding:calc(10px * var(--ui-scale)); background:${C.central}; color:white; border:none; border-radius:calc(6px * var(--ui-scale)); font-weight:bold; font-size:calc(13px * var(--ui-scale)); cursor:pointer;">▶ 중앙 GNN 연산 애니메이션 실행</button>
+        <div style="margin-top:calc(10px * var(--ui-scale)); font-size:calc(11.5px * var(--ui-scale)); line-height:1.5; color:var(--text2); background:#F3F4F6; padding:calc(10px * var(--ui-scale)); border-radius:calc(8px * var(--ui-scale));">
+            분산 보간 없이 모든 노드 특징을 사용하므로 예측은 안정적이지만, 원본 데이터가 중앙으로 집중되는 구조입니다.
+        </div>`;
+
+        setTimeout(() => {
+            const btn = document.getElementById('btn-run-central-gnn');
+            if (btn) btn.addEventListener('click', () => {
+                state.centralAnimating = true;
+                state.centralAnimStart = performance.now();
+                state.centralPlaying = false;
+                renderMathPanel();
+            });
+        }, 50);
+    }
+
     function renderMathPanel() {
         const mp = document.getElementById('math-panel');
         if (!mp) return;
+        if (state.mode === 'central') {
+            renderCentralMathPanel(mp);
+            return;
+        }
         if (state.mode !== 'gnn') {
             mp.classList.remove('visible');
             return;
@@ -1074,15 +1584,17 @@
     // ===== Mode switching =====
     function setMode(mode) {
         state.mode = mode;
-        document.querySelectorAll('.mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
-        renderPanel(); updateLegend();
+        if (mode === 'central') { state.centralPlaying = false; state.centralStep = 0; state.centralProgress = 0; state.centralEpoch = 1; state.centralAnimating = false; }
         if (mode === 'gnn') { state.waves = []; state.lossFrame = 0; }
         if (mode === 'resilience') { state.online = [true, true, true, true]; }
         if (mode === 'fl') { state.flPlaying = false; state.flStep = 0; state.flProgress = 0; state.flRound = 1; }
+        document.querySelectorAll('.mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+        renderPanel(); updateLegend();
     }
     function renderPanel() {
         const p = document.getElementById('info-panel');
         if (state.mode === 'overview') p.innerHTML = getOverviewPanel();
+        else if (state.mode === 'central') p.innerHTML = getCentralPanel();
         else if (state.mode === 'fl') p.innerHTML = getFLPanel();
         else if (state.mode === 'gnn') p.innerHTML = getGNNPanel();
         else p.innerHTML = getResiliencePanel();
@@ -1091,12 +1603,16 @@
     }
     function updateLegend() {
         const lp = document.getElementById('legend-panel');
-        const dots = C.srv.map((c, i) => `<div class="legend-item"><div class="legend-dot" style="background:${c}"></div>${C.srvName[i]}</div>`).join('');
+        const dots = state.mode === 'central' ? '' : C.srv.map((c, i) => `<div class="legend-item"><div class="legend-dot" style="background:${c}"></div>${C.srvName[i]}</div>`).join('');
         let ex = '';
         if (state.mode === 'overview') ex =
             '<div class="legend-item"><div class="legend-dot" style="background:#10B981"></div>원활 (차량흐름●)</div>' +
             '<div class="legend-item"><div class="legend-dot" style="background:#F59E0B"></div>서행</div>' +
             '<div class="legend-item"><div class="legend-dot" style="background:#EF4444"></div>정체</div>';
+        if (state.mode === 'central') ex =
+            '<div class="legend-item"><div class="legend-dot" style="background:' + C.central + '"></div>중앙 서버</div>' +
+            '<div class="legend-item"><div class="legend-line" style="background:' + C.central + '"></div>센서 직접 전송</div>' +
+            '<div class="legend-item"><div class="legend-dot" style="background:#10B981"></div>GNN 예측 결과</div>';
         if (state.mode === 'fl') ex =
             '<div class="legend-item"><div class="legend-dot" style="background:#0EA5E9"></div>중앙 서버</div>' +
             '<div class="legend-item"><div style="display:inline-block;width:10px;height:10px;background:#3B82F6;clip-path:polygon(50% 0%,100% 50%,50% 100%,0% 50%);margin-right:4px"></div>모델 파라미터◆</div>';
@@ -1109,6 +1625,14 @@
         lp.innerHTML = dots + '<div class="legend-item"><div class="legend-line"></div>센서 연결</div>' + ex;
     }
     function bindModeEvents() {
+        const cp = document.getElementById('central-play');
+        if (cp) cp.addEventListener('click', () => { state.centralPlaying = !state.centralPlaying; cp.textContent = state.centralPlaying ? '⏸' : '▶'; cp.classList.toggle('active', state.centralPlaying); });
+        const csb = document.getElementById('central-step-btn');
+        if (csb) csb.addEventListener('click', () => { state.centralStep = (state.centralStep + 1) % 4; state.centralProgress = 0; if (state.centralStep === 0) state.centralEpoch = Math.min(60, state.centralEpoch + 1); updateCentralPanel(); });
+        const crb = document.getElementById('central-reset');
+        if (crb) crb.addEventListener('click', () => { state.centralEpoch = 1; state.centralStep = 0; state.centralProgress = 0; state.centralPlaying = false; state.centralAnimating = false; const pb = document.getElementById('central-play'); if (pb) { pb.textContent = '▶'; pb.classList.remove('active'); } updateCentralPanel(); renderMathPanel(); });
+        const csi = document.getElementById('central-speed');
+        if (csi) csi.addEventListener('input', () => { state.centralSpeed = parseInt(csi.value); });
         const play = document.getElementById('fl-play');
         if (play) play.addEventListener('click', () => { state.flPlaying = !state.flPlaying; play.textContent = state.flPlaying ? '⏸' : '▶'; play.classList.toggle('active', state.flPlaying); });
         const sb = document.getElementById('fl-step-btn');
@@ -1119,6 +1643,17 @@
         if (si) si.addEventListener('input', () => { state.flSpeed = parseInt(si.value); });
         document.querySelectorAll('.impute-btn').forEach(btn => { btn.addEventListener('click', () => { state.imputeMethod = btn.dataset.imp; state.lossFrame = 0; renderPanel(); }); });
         document.querySelectorAll('.srv-btn').forEach(btn => { btn.addEventListener('click', () => { state.online[parseInt(btn.dataset.server)] = !state.online[parseInt(btn.dataset.server)]; renderPanel(); }); });
+    }
+    function updateCentralPanel() {
+        const b = document.getElementById('central-epoch-badge'); if (b) b.textContent = state.centralEpoch + ' / 60';
+        document.querySelectorAll('.step-dot-wrap').forEach(w => {
+            const s = parseInt(w.dataset.s);
+            w.classList.remove('active', 'done');
+            w.querySelector('.step-dot').classList.remove('active', 'done');
+            if (s === state.centralStep) { w.classList.add('active'); w.querySelector('.step-dot').classList.add('active'); }
+            else if (s < state.centralStep) { w.classList.add('done'); w.querySelector('.step-dot').classList.add('done'); }
+        });
+        const d = document.getElementById('central-step-desc'); if (d) d.textContent = CENTRAL_DESCS[state.centralStep];
     }
     function updateFLPanel() {
         const b = document.getElementById('fl-round-badge'); if (b) b.textContent = state.flRound + ' / 100';

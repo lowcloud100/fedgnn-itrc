@@ -33,7 +33,7 @@ html, body { width: 100%; height: 100vh; overflow: hidden; font-family: var(--fo
 .badge { font-size: calc(10px * var(--ui-scale)); font-weight: 600; padding: calc(3px * var(--ui-scale)) calc(8px * var(--ui-scale)); border-radius: 100px; background: #EEF2FF; color: var(--srv-b); letter-spacing: 0.3px; margin-left: calc(4px * var(--ui-scale)); }
 
 /* Mode Tabs */
-.mode-panel { top: calc(16px * var(--ui-scale)); left: 50%; transform: translateX(-50%); display: flex; gap: calc(4px * var(--ui-scale)); padding: calc(5px * var(--ui-scale)); }
+.mode-panel { top: calc(16px * var(--ui-scale)); left: 50%; transform: translateX(-50%); display: flex; flex-wrap: wrap; justify-content: center; gap: calc(4px * var(--ui-scale)); padding: calc(5px * var(--ui-scale)); max-width: calc(100vw - 32px * var(--ui-scale)); }
 .mode-btn { padding: calc(8px * var(--ui-scale)) calc(16px * var(--ui-scale)); background: transparent; border: none; border-radius: var(--radius-sm); font-family: var(--font); font-size: calc(13px * var(--ui-scale)); font-weight: 500; color: var(--text2); cursor: pointer; transition: all 0.25s ease; white-space: nowrap; }
 .mode-btn:hover { background: #F3F4F6; color: var(--text); }
 .mode-btn.active { background: var(--text); color: white; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
